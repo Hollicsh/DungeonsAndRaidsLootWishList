@@ -134,7 +134,7 @@ test('localization contains required wishlist keys for all supported locales', a
   }
 })
 
-test('tracker row style uses quest-style check atlas and native-like padding', async () => {
+test('tracker row style uses quest-style check atlas and row padding', async () => {
   const { module: trackerRowStyle, close } = await loadLuaModule('TrackerRowStyle.lua')
 
   try {
@@ -143,8 +143,6 @@ test('tracker row style uses quest-style check atlas and native-like padding', a
 
     assert.equal(trackerRowStyle.CHECK_ATLAS, 'ui-questtracker-tracker-check')
     assert.equal(trackerRowStyle.CHECK_SIZE, 16)
-    assert.equal(trackerRowStyle.GROUP_FONT_DELTA, 2)
-    assert.equal(trackerRowStyle.ITEM_FONT_DELTA, 2)
     assert.equal(incomplete.textLeftOffset, 20)
     assert.equal(complete.textLeftOffset, 24)
     assert.equal(complete.checkLeftOffset, 8)

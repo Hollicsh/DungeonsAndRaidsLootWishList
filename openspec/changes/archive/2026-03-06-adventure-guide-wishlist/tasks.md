@@ -30,4 +30,4 @@
 
 - [x] 5.1 Define localization entries for all user-facing strings, including `Loot Wishlist`, `Wishlist`, `Other`, popup text, and any Adventure Guide marker text.
 - [x] 5.2 Ensure every supported World of Warcraft locale has the required translation keys or explicit fallback handling.
-- [ ] 5.3 Verify the change against the proposal, design, and specs by checking Adventure Guide toggling, grouped tracker rendering, loot alerts, loot-roll tagging, possession ticks, and localization coverage.
+- [x] 5.3 Verify the change against the proposal, design, and specs by checking Adventure Guide toggling, grouped tracker rendering, loot alerts, loot-roll tagging, possession ticks, and localization coverage.
