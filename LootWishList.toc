@@ -1,0 +1,17 @@
+## Interface: 120000
+## Title: Loot WishList
+## Notes: Adventure Guide loot wishlist and tracker integration
+## Author: Leonardo Leal
+## Version: 0.1.0
+## SavedVariablesPerCharacter: LootWishListDB
+
+WishlistStore.lua
+ItemResolver.lua
+SourceResolver.lua
+TrackerModel.lua
+TrackerRowStyle.lua
+Locales.lua
+TrackerUI.lua
+AdventureGuideUI.lua
+LootEvents.lua
+LootWishList.lua

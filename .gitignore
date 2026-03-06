@@ -12,6 +12,9 @@
 .DS_Store
 Thumbs.db
 
+# Node test tooling
+node_modules/
+
 # OpenCode (local agent config - optional to ignore)
 .opencode/node_modules/
 .opencode/bun.lock
