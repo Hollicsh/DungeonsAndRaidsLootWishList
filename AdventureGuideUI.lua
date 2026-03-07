@@ -106,14 +106,16 @@ local function buildItemData(namespace, frame)
     instanceName = namespace.GetCurrentSourceLabel({
       itemData = data,
       frame = frame,
-      currentTitle = EncounterJournal and EncounterJournal.instanceSelect and EncounterJournal.instanceSelect.title and EncounterJournal.instanceSelect.title.GetText and EncounterJournal.instanceSelect.title:GetText() or nil,
+      currentTitle = EncounterJournal and EncounterJournal.instanceSelect and EncounterJournal.instanceSelect.title and
+      EncounterJournal.instanceSelect.title.GetText and EncounterJournal.instanceSelect.title:GetText() or nil,
     }),
   }
 end
 
 local function isLikelyLootButton(frame)
   local data = frame.data or frame.info or frame.itemInfo
-  local hasItemIdentity = frame.itemID or frame.itemId or frame.itemLink or frame.link or (data and (data.itemID or data.itemId or data.link or data.itemLink))
+  local hasItemIdentity = frame.itemID or frame.itemId or frame.itemLink or frame.link or
+  (data and (data.itemID or data.itemId or data.link or data.itemLink))
   if not hasItemIdentity then
     return false
   end
@@ -197,17 +199,52 @@ end
 
 function AdventureGuideUI.Initialize(namespace)
   local updater = CreateFrame("Frame")
-  updater:SetScript("OnUpdate", function(_, elapsed)
-    namespace.journalElapsed = (namespace.journalElapsed or 0) + elapsed
-    if namespace.journalElapsed < 0.25 then
+  namespace.journalUpdater = updater
+
+  local function startUpdater()
+    updater:SetScript("OnUpdate", function(_, elapsed)
+      namespace.journalElapsed = (namespace.journalElapsed or 0) + elapsed
+      if namespace.journalElapsed < 0.25 then
+        return
+      end
+
+      namespace.journalElapsed = 0
+      AdventureGuideUI.Refresh(namespace)
+    end)
+  end
+
+  local function stopUpdater()
+    updater:SetScript("OnUpdate", nil)
+    namespace.journalElapsed = 0
+  end
+
+  local function hookEncounterJournal()
+    if not EncounterJournal then
       return
     end
 
-    namespace.journalElapsed = 0
-    AdventureGuideUI.Refresh(namespace)
-  end)
+    EncounterJournal:HookScript("OnShow", startUpdater)
+    EncounterJournal:HookScript("OnHide", stopUpdater)
 
-  namespace.journalUpdater = updater
+    -- If it is already open right now (e.g. after /reload), start immediately.
+    if EncounterJournal:IsShown() then
+      startUpdater()
+    end
+  end
+
+  -- Blizzard_EncounterJournal is load-on-demand; it may not exist yet.
+  if EncounterJournal then
+    hookEncounterJournal()
+  else
+    local loader = CreateFrame("Frame")
+    loader:RegisterEvent("ADDON_LOADED")
+    loader:SetScript("OnEvent", function(self, _, addonName)
+      if addonName == "Blizzard_EncounterJournal" then
+        self:UnregisterAllEvents()
+        hookEncounterJournal()
+      end
+    end)
+  end
 
   local hookTargets = {
     "EncounterJournal_LootUpdate",
