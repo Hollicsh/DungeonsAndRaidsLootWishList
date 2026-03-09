@@ -29,14 +29,20 @@ function LootEvents.HandleStartLootRoll(namespace, rollID)
   end
 
   if not frame.LootWishListTag then
-    frame.LootWishListTag = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    frame.LootWishListTag = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     local font, size, flags = frame.LootWishListTag:GetFont()
     if font and size then
-      frame.LootWishListTag:SetFont(font, size - 3, flags)
+      -- Give the text an outline to act as a border
+      frame.LootWishListTag:SetFont(font, size, "OUTLINE")
     end
+    -- Add a shadow behind the text (offset slightly)
+    frame.LootWishListTag:SetShadowColor(0, 0, 0, 1)
+    frame.LootWishListTag:SetShadowOffset(1, -1)
+    -- Optional: Make the text color stand out (e.g., golden yellow or green)
+    frame.LootWishListTag:SetTextColor(1, 0.82, 0) -- GameFontNormal yellow
   end
-  frame.LootWishListTag:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -84, -12)
-  frame.LootWishListTag:SetText(string.upper(namespace.GetText("WISHLIST")))
+  frame.LootWishListTag:SetPoint("TOP", frame, "TOP", 0, 7)
+  frame.LootWishListTag:SetText(namespace.GetText("WISHLIST"))
   frame.LootWishListTag:Show()
 end
 
