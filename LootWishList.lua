@@ -150,6 +150,8 @@ function namespace.SetTrackedFromItemData(itemData, tracked)
       itemName = normalized.itemName,
       itemLink = normalized.itemLink,
       sourceLabel = normalized.instanceName,
+      encounterID = normalized.encounterID,
+      instanceID = normalized.instanceID,
     })
   else
     namespace.WishlistStore.removeItem(db, characterKey, normalized.itemID)
@@ -208,6 +210,63 @@ function namespace.RefreshPossessionState()
   end
 end
 
+local raidInstances = {}
+local function isRaidInstance(instanceID)
+  if not instanceID then return false end
+  if raidInstances[instanceID] ~= nil then
+    return raidInstances[instanceID]
+  end
+
+  if type(EJ_GetInstanceByIndex) ~= "function" then
+    return false
+  end
+
+  local i = 1
+  while true do
+    local id = EJ_GetInstanceByIndex(i, true)
+    if not id then break end
+    raidInstances[id] = true
+    if id == instanceID then
+      return true
+    end
+    i = i + 1
+  end
+
+  raidInstances[instanceID] = false
+  return false
+end
+
+local instanceEncounterRanks = {}
+local function getEncounterRank(encounterID, instanceID)
+  if not encounterID or not instanceID then return 999 end
+  if not instanceEncounterRanks[instanceID] then
+    instanceEncounterRanks[instanceID] = {}
+    if type(EJ_SelectInstance) == "function" and type(EJ_GetEncounterInfoByIndex) == "function" then
+      EJ_SelectInstance(instanceID)
+      local e = 1
+      while true do
+        local _, _, eid = EJ_GetEncounterInfoByIndex(e)
+        if not eid then break end
+        instanceEncounterRanks[instanceID][eid] = e
+        e = e + 1
+      end
+    end
+  end
+  return instanceEncounterRanks[instanceID][encounterID] or 999
+end
+
+local function resolveBossName(encounterID, instanceID)
+  if not encounterID or not instanceID then return nil end
+  if not isRaidInstance(instanceID) then return nil end
+
+  if type(EJ_GetEncounterInfo) == "function" then
+    local name = EJ_GetEncounterInfo(encounterID)
+    return name
+  end
+
+  return nil
+end
+
 function namespace.BuildTrackerGroups()
   local trackedItems = namespace.WishlistStore.getTrackedItems(getCurrentDb(), getCharacterKey())
   local renderItems = {}
@@ -227,12 +286,17 @@ function namespace.BuildTrackerGroups()
     })
     local displayLink = bestOwnedLink or item.itemLink
 
+    local bossName = resolveBossName(item.encounterID, item.instanceID)
+    local bossRank = bossName and getEncounterRank(item.encounterID, item.instanceID) or nil
+
     table.insert(renderItems, {
       itemID = item.itemID,
       itemName = itemName,
       groupLabel = groupLabel,
       isPossessed = namespace.state.possessed[key] == true,
       bestLootedItemLevel = item.bestLootedItemLevel,
+      bossName = bossName,
+      bossRank = bossRank,
       tooltipRef = tooltipRef,
       displayLink = displayLink,
     })
@@ -249,7 +313,7 @@ function namespace.ShowLootDialog(playerName, itemLink)
       "|n\194\160\194\160" ..
       (namespace.GetText("PLAYER_LOOTED_WISHLIST_ITEM") or "|cFFFFFFFF%s|r looted an item on your Loot Wishlist!") ..
       "\194\160\194\160|n|n",
-      "|cFFFF8000" .. playerName .. "|cFFFFFFFF"
+      "|cffffcc00" .. playerName .. "|cFFFFFFFF"
     )
 
     local data = {
@@ -286,6 +350,7 @@ end
 eventFrame:SetScript("OnEvent", function(_, event, ...)
   if event == "PLAYER_LOGIN" then
     namespace.db = getCurrentDb()
+    namespace.WishlistStore.runMigration(namespace.db, namespace)
     namespace.TrackerUI.Initialize(namespace)
     namespace.AdventureGuideUI.Initialize(namespace)
     registerEvents()
@@ -323,8 +388,8 @@ eventFrame:RegisterEvent("PLAYER_LOGIN")
 --@do-not-package@
 -- === TEMPORARY TEST COMMAND ===
 -- Type /testroll in-game to see the "WISHLIST" tag rendered over a template GroupLootFrame
-SLASH_LOOTWISHTEST1 = "/testroll"
-SlashCmdList["LOOTWISHTEST"] = function()
+SLASH_LWTESTROLL1 = "/testroll"
+SlashCmdList["LWTESTROLL"] = function()
   -- Fetch a random tracked item
   local db = LootWishListDB or { characters = {} }
   local name = UnitName("player") or "Unknown"
@@ -413,5 +478,31 @@ SlashCmdList["LOOTWISHTEST"] = function()
   _G["GroupLootFrame5"] = nil -- Clean up the global taint
 
   print("LootWishList: Created and showed a template GroupLootFrame for " .. (testItem.itemName or "Test Item") .. "!")
+end
+
+SLASH_LWTESTALERT1 = "/testalert"
+SlashCmdList["LWTESTALERT"] = function()
+  local db = LootWishListDB or { characters = {} }
+  local name = UnitName("player") or "Unknown"
+  local realm = GetRealmName() or "Unknown"
+  local charKey = string.format("%s-%s", name, realm)
+  local trackedItems = namespace.WishlistStore.getTrackedItems(db, charKey)
+
+  if not trackedItems or #trackedItems == 0 then
+    print("LootWishList: You have no items in your wishlist to test with! Add one from the Adventure Guide first.")
+    return
+  end
+
+  local randomNames = { "Leo", "Alex", "Jordan", "Sam", "Chris", "Mika", "Robin" }
+  local randomName = randomNames[math.random(1, #randomNames)]
+
+  local randomIndex = math.random(1, #trackedItems)
+  local testItem = trackedItems[randomIndex]
+  local itemID = testItem.itemID
+  local itemLink = testItem.itemLink or
+      ("|Hitem:" .. itemID .. "::::::::70:::::|h[" .. (testItem.itemName or "Test Item") .. "]|h")
+
+  namespace.ShowLootDialog(randomName, itemLink)
+  print("LootWishList: Triggered test alert for " .. randomName .. " looting " .. itemLink)
 end
 --@end-do-not-package@

@@ -6,9 +6,10 @@ Currently, `DungeonsAndRaidsLootWishList` groups tracked items by instance name 
 
 **Goals:**
 - Provide immediate, at-a-glance context for where raid loot comes from.
-- Display the boss name in white text enclosed in parentheses after the item name and item level.
+- Organize raid items hierarchically: boss name as a gray section header above items belonging to that boss.
+- Sort bosses by their encounter order within the raid.
 - Dynamically resolve the boss name and raid status at render time using the Encounter Journal API to keep the saved variables factual and pure.
-- Ensure dungeon items continue to display normally without boss names.
+- Ensure dungeon items continue to display normally without boss headers.
 
 **Non-Goals:**
 - Do not display boss names for items originating from dungeons.
@@ -25,8 +26,8 @@ Currently, `DungeonsAndRaidsLootWishList` groups tracked items by instance name 
   - *Rationale:* This is the most reliable way to determine if an instance is considered a raid by the Encounter Journal.
   - *Alternatives Considered:* Checking `button.shouldDisplayDifficulty` or max party size. Rejected as less robust than directly querying the EJ's raid list.
 
-- **Display Formatting:** The boss name will be formatted as `Item Name [(ItemLevel)] [|cffffffff(BossName)|r]`. If the item level is present, it appears before the boss name.
-  - *Rationale:* This provides a clean, distinct look that clearly separates the item's properties (name, ilvl) from its source (boss).
+- **Hierarchical Display for Raids:** Instead of appending the boss name inline to each item, the addon organizes raid items into sections. Each boss appears as a gray section header, followed by items belonging to that boss. Items display the item name and item level (if known) without the boss name inline.
+  - *Rationale:* This provides a cleaner, scannable layout where players can quickly identify which boss drops desired items. The gray header distinguishes it from item names while keeping visual noise low.
 
 - **Data Migration:** A one-time migration step will be introduced to handle existing saved variables.
   - *Rationale:* Existing tracked items lack `encounterID` and `instanceID` metadata. To prevent structural errors and data corruption, a migration function will run upon loading saved variables. It will ensure that all existing items have properly initialized metadata structures, avoiding nil-reference crashes in the updated codebase.

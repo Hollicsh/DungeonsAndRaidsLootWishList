@@ -6,7 +6,7 @@ Currently, items tracked from raid bosses only display the instance name as the 
 
 - When an item is tracked from a raid boss in the Adventure Guide, the addon will capture and store the encounter ID or boss identifier along with the instance ID.
 - During tracker refresh, the addon will dynamically scan the Adventure Guide API (`EJ_GetInstanceByIndex`, `EJ_GetEncounterInfo`, etc.) to determine if the instance is a raid and to resolve the boss name.
-- If the source is determined to be a raid boss, the objective tracker row will dynamically format the display text to include the item name, followed by the best looted item level (if any), and finally the boss name enclosed in parentheses and formatted in white text: `Item Name [(ItemLevel)] [|cffffffff(BossName)|r]`.
+- If the source is determined to be a raid boss, the objective tracker will organize items hierarchically: raid instances display a boss header (gray section label) followed by items belonging to that boss. Items show the item name and best looted item level (if any), without the boss name inline. Bosses are sorted by their encounter order within the raid.
 - This behavior will only apply to raid instances; dungeon items will continue to display normally to avoid unnecessary clutter.
 - A one-time data migration function will execute when saved variables are loaded to ensure existing wishlist data isn't corrupted and is correctly structured with the new expected fields.
 
@@ -18,7 +18,7 @@ Currently, items tracked from raid bosses only display the instance name as the 
 
 ### Modified Capabilities
 
-- `wishlist-tracker-display`: Tracker rows for items originating from raid bosses will dynamically resolve and append the boss name in white text after the item name and item level.
+- `wishlist-tracker-display`: Tracker rows for items from raid bosses will be organized hierarchically with boss names as gray section headers, sorted by encounter order within the raid.
 
 ## Impact
 

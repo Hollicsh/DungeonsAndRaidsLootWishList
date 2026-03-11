@@ -99,15 +99,27 @@ local function buildItemData(namespace, frame)
     return nil
   end
 
+  local encounterID = frame.encounterID or frame.bossID or (data and (data.encounterID or data.bossID))
+  if not encounterID and EncounterJournal then
+    encounterID = EncounterJournal.encounterID
+  end
+
+  local instanceID = frame.instanceID or (data and data.instanceID)
+  if not instanceID and EncounterJournal then
+    instanceID = EncounterJournal.instanceID
+  end
+
   return {
     itemID = itemID,
     itemLink = itemLink,
     itemName = extractTextFromFrame(frame),
+    encounterID = encounterID,
+    instanceID = instanceID,
     instanceName = namespace.GetCurrentSourceLabel({
       itemData = data,
       frame = frame,
       currentTitle = EncounterJournal and EncounterJournal.instanceSelect and EncounterJournal.instanceSelect.title and
-      EncounterJournal.instanceSelect.title.GetText and EncounterJournal.instanceSelect.title:GetText() or nil,
+          EncounterJournal.instanceSelect.title.GetText and EncounterJournal.instanceSelect.title:GetText() or nil,
     }),
   }
 end
@@ -115,7 +127,7 @@ end
 local function isLikelyLootButton(frame)
   local data = frame.data or frame.info or frame.itemInfo
   local hasItemIdentity = frame.itemID or frame.itemId or frame.itemLink or frame.link or
-  (data and (data.itemID or data.itemId or data.link or data.itemLink))
+      (data and (data.itemID or data.itemId or data.link or data.itemLink))
   if not hasItemIdentity then
     return false
   end

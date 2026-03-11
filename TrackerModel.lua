@@ -16,51 +16,118 @@ local function compareGroupLabels(otherLabel, left, right)
   return left < right
 end
 
-local function buildDisplayText(item)
+local function buildDisplayText(item, skipBoss)
+  local text = item.itemName
   if item.bestLootedItemLevel ~= nil then
-    return string.format("%s (%s)", item.itemName, tostring(item.bestLootedItemLevel))
+    text = string.format("%s (%s)", text, tostring(item.bestLootedItemLevel))
   end
 
-  return item.itemName
+  if not skipBoss and item.bossName ~= nil and item.bossName ~= "" then
+    text = string.format("%s |cffa0a0a0(%s)|r", text, item.bossName)
+  end
+
+  return text
 end
 
 function TrackerModel.buildGroups(items, otherLabel)
   local groupsByLabel = {}
   otherLabel = otherLabel or "Other"
 
+  -- First, group items by Source (groupLabel)
   for _, item in ipairs(items) do
     local label = item.groupLabel or "Other"
     if groupsByLabel[label] == nil then
       groupsByLabel[label] = {
         label = label,
         items = {},
+        isRaid = false, -- Will be set if any item has a bossName
       }
     end
 
-    table.insert(groupsByLabel[label].items, {
-      itemID = item.itemID,
-      itemName = item.itemName,
-      displayText = buildDisplayText(item),
-      showTick = item.isPossessed == true,
-      bestLootedItemLevel = item.bestLootedItemLevel,
-      groupLabel = label,
-      tooltipRef = item.tooltipRef,
-      displayLink = item.displayLink,
-    })
+    if item.bossName and item.bossName ~= "" then
+      groupsByLabel[label].isRaid = true
+    end
+
+    table.insert(groupsByLabel[label].items, item)
   end
 
+  -- Sort sources
   local labels = {}
   for label in pairs(groupsByLabel) do
     table.insert(labels, label)
   end
-
   table.sort(labels, function(left, right)
     return compareGroupLabels(otherLabel, left, right)
   end)
 
   local orderedGroups = {}
   for _, label in ipairs(labels) do
-    table.insert(orderedGroups, groupsByLabel[label])
+    local group = groupsByLabel[label]
+    local flattenedItems = {}
+
+    if group.isRaid then
+      -- Hierarchical grouping for Raids: Boss > Items
+      local itemsByBoss = {}
+      local bossOrder = {}
+      local bossRanks = {}
+
+      for _, item in ipairs(group.items) do
+        local bname = item.bossName or "Unknown"
+        if not itemsByBoss[bname] then
+          itemsByBoss[bname] = {}
+          table.insert(bossOrder, bname)
+          bossRanks[bname] = item.bossRank or 999
+        end
+        table.insert(itemsByBoss[bname], item)
+      end
+
+      -- Sort bosses by their EJ rank
+      table.sort(bossOrder, function(left, right)
+        return bossRanks[left] < bossRanks[right]
+      end)
+
+      -- Flatten into rows with headers
+      for _, bname in ipairs(bossOrder) do
+        -- Boss Header row
+        table.insert(flattenedItems, {
+          itemID = "header:" .. bname,
+          displayText = bname,
+          isBossHeader = true,
+          showTick = false,
+        })
+
+        -- Items under this boss
+        for _, item in ipairs(itemsByBoss[bname]) do
+          table.insert(flattenedItems, {
+            itemID = item.itemID,
+            itemName = item.itemName,
+            displayText = buildDisplayText(item, true), -- skip inline boss name
+            showTick = item.isPossessed == true,
+            bestLootedItemLevel = item.bestLootedItemLevel,
+            tooltipRef = item.tooltipRef,
+            displayLink = item.displayLink,
+          })
+        end
+      end
+    else
+      -- Flat list for Dungeons and Other
+      for _, item in ipairs(group.items) do
+        table.insert(flattenedItems, {
+          itemID = item.itemID,
+          itemName = item.itemName,
+          displayText = buildDisplayText(item),
+          showTick = item.isPossessed == true,
+          bestLootedItemLevel = item.bestLootedItemLevel,
+          tooltipRef = item.tooltipRef,
+          displayLink = item.displayLink,
+        })
+      end
+    end
+
+    table.insert(orderedGroups, {
+      label = group.label,
+      items = flattenedItems,
+    })
   end
 
   return orderedGroups

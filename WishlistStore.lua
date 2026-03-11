@@ -64,6 +64,14 @@ function WishlistStore.setItemMetadata(db, characterKey, itemId, metadata)
   if metadata.sourceLabel ~= nil then
     entry.sourceLabel = metadata.sourceLabel
   end
+
+  if metadata.encounterID ~= nil then
+    entry.encounterID = metadata.encounterID
+  end
+
+  if metadata.instanceID ~= nil then
+    entry.instanceID = metadata.instanceID
+  end
 end
 
 function WishlistStore.getSourceLabel(db, characterKey, itemId)
@@ -78,6 +86,7 @@ end
 
 function WishlistStore.updateBestLootedItemLevel(db, characterKey, itemId, itemLevel)
   local entry = WishlistStore.getItemEntry(db, characterKey, itemId)
+  if not entry then return nil end
 
   if itemLevel == nil then
     return entry.bestLootedItemLevel
@@ -116,11 +125,13 @@ function WishlistStore.getTrackedItems(db, characterKey)
     if entry.tracked == true then
       table.insert(trackedItems, {
         itemID = tonumber(itemKey) or itemKey,
-      tracked = true,
-      bestLootedItemLevel = entry.bestLootedItemLevel,
-      sourceLabel = entry.sourceLabel,
-      itemName = entry.itemName,
-      itemLink = entry.itemLink,
+        tracked = true,
+        bestLootedItemLevel = entry.bestLootedItemLevel,
+        sourceLabel = entry.sourceLabel,
+        itemName = entry.itemName,
+        itemLink = entry.itemLink,
+        encounterID = entry.encounterID,
+        instanceID = entry.instanceID,
       })
     end
   end
@@ -130,6 +141,72 @@ function WishlistStore.getTrackedItems(db, characterKey)
   end)
 
   return trackedItems
+end
+
+function WishlistStore.performBackfill(db, characterKey, namespace)
+  local character = WishlistStore.ensureCharacter(db, characterKey)
+  local itemsPending = {}
+
+  for itemID, entry in pairs(character.items) do
+    if entry.tracked and (not entry.encounterID or not entry.instanceID) then
+      itemsPending[tonumber(itemID)] = entry
+    end
+  end
+
+  if next(itemsPending) == nil then
+    return
+  end
+
+  -- Scan EJ for missing encounter/instance IDs
+  -- This is a one-time heavy task for migration
+  if type(EJ_GetNumTiers) ~= "function" then return end
+
+  for t = 1, EJ_GetNumTiers() do
+    EJ_SelectTier(t)
+    for isRaid = 0, 1 do
+      local i = 1
+      while true do
+        local instanceID, name = EJ_GetInstanceByIndex(i, isRaid == 1)
+        if not instanceID then break end
+
+        EJ_SelectInstance(instanceID)
+        local e = 1
+        while true do
+          local ename, _, encounterID = EJ_GetEncounterInfoByIndex(e)
+          if not encounterID then break end
+
+          if type(EJ_SelectEncounter) == "function" and type(EJ_GetNumLoot) == "function" then
+            EJ_SelectEncounter(encounterID)
+            local numLoot = EJ_GetNumLoot() or 0
+            for l = 1, numLoot do
+              local litem
+              if C_EncounterJournal and C_EncounterJournal.GetLootInfoByIndex then
+                litem = C_EncounterJournal.GetLootInfoByIndex(l)
+              end
+
+              local litemID = litem and litem.itemID
+              if litemID and itemsPending[litemID] then
+                itemsPending[litemID].encounterID = encounterID
+                itemsPending[litemID].instanceID = instanceID
+              end
+            end
+          end
+          e = e + 1
+        end
+        i = i + 1
+      end
+    end
+  end
+end
+
+function WishlistStore.runMigration(db, namespace)
+  if db.version == 2 then return end
+
+  for characterKey, _ in pairs(db.characters or {}) do
+    WishlistStore.performBackfill(db, characterKey, namespace)
+  end
+
+  db.version = 2
 end
 
 local _, namespace = ...

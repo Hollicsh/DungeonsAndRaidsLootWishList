@@ -35,17 +35,19 @@ local function layoutContents(self)
     for itemIndex, item in ipairs(group.items) do
       local objectiveKey = tostring(groupIndex) .. ":" .. tostring(item.itemID)
 
-      -- Determine dash style: hide the dash for possessed items (show check instead).
+      -- Determine dash style: hide the dash for possessed items (show check instead) or boss headers.
       local dashStyle
-      if item.showTick then
+      if item.showTick or item.isBossHeader then
         dashStyle = OBJECTIVE_DASH_STYLE_HIDE
       else
         dashStyle = OBJECTIVE_DASH_STYLE_SHOW
       end
 
-      -- Determine text colour from item quality.
+      -- Determine text colour from item quality or use gray for boss headers.
       local colorStyle = nil
-      if item.displayLink and type(GetItemInfo) == "function" then
+      if item.isBossHeader then
+        colorStyle = { r = 0.65, g = 0.65, b = 0.65 }
+      elseif item.displayLink and type(GetItemInfo) == "function" then
         local _, _, itemQuality = GetItemInfo(item.displayLink)
         if itemQuality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[itemQuality] then
           local qc = ITEM_QUALITY_COLORS[itemQuality]
@@ -56,6 +58,12 @@ local function layoutContents(self)
       local line = block:AddObjective(objectiveKey, item.displayText, nil, nil, dashStyle, colorStyle)
 
       if line then
+        -- Apply negative indentation for boss headers.
+        if item.isBossHeader and line.Text then
+          line.Text:ClearAllPoints()
+          line.Text:SetPoint("TOPLEFT", line, "TOPLEFT", 0, 0)
+          line.Text:SetPoint("BOTTOMRIGHT", line, "BOTTOMRIGHT", 0, 0)
+        end
         -- Tick texture for possessed items — placed where the Dash was.
         if item.showTick and line.Dash then
           if not line.Check then
@@ -73,6 +81,7 @@ local function layoutContents(self)
         -- Store item data on the line frame itself so the shared hook can access it.
         line.lootWishList_tooltipRef = item.displayLink or item.tooltipRef
         line.lootWishList_itemID = item.itemID
+        line.lootWishList_isBossHeader = item.isBossHeader
 
         -- Native Tracker lines are securely pooled. Overwriting them with SetScript permanently
         -- replaces their secure handler with our insecure handler, which taints them when they
@@ -83,6 +92,9 @@ local function layoutContents(self)
           line:HookScript("OnEnter", function(self)
             -- Only run our addon logic if this natively pooled frame currently belongs to our module.
             if not self.parentBlock or self.parentBlock.parentModule ~= wishlistModule then return end
+
+            -- Disable tooltip for boss headers.
+            if self.lootWishList_isBossHeader then return end
 
             -- To avoid layout engine taint (attempting arithmetic on a secret number value)
             -- when anchoring tooltips to securely pooled native tracker lines, we must

@@ -43,6 +43,8 @@ function ItemResolver.normalizeItemData(itemData)
     itemName = itemData.itemName,
     itemLevel = itemData.itemLevel,
     instanceName = itemData.instanceName,
+    encounterID = itemData.encounterID or itemData.bossID,
+    instanceID = itemData.instanceID,
   }
 end
 

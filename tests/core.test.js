@@ -26,14 +26,24 @@ test('wishlist store persists tracked items and best looted item levels per char
   try {
     store.ensureCharacter(db, 'Player-Realm')
     store.setTracked(db, 'Player-Realm', 19019, true)
+    
+    const metadata = { 
+      itemName: 'Thunderfury', 
+      encounterID: 11502, 
+      instanceID: 469 
+    }
+    store.setItemMetadata(db, 'Player-Realm', 19019, metadata)
     store.updateBestLootedItemLevel(db, 'Player-Realm', 19019, 262)
 
     assert.equal(store.isTracked(db, 'Player-Realm', 19019), true)
     assert.equal(store.getBestLootedItemLevel(db, 'Player-Realm', 19019), 262)
-    assert.deepEqual(db.characters['Player-Realm'].items[19019], {
-      tracked: true,
-      bestLootedItemLevel: 262,
-    })
+    
+    const items = db.characters['Player-Realm'].items
+    const entry = items['19019'] || items[19019]
+    assert.ok(entry, 'Entry should exist')
+    assert.equal(entry.tracked, true)
+    assert.equal(entry.encounterID, 11502)
+    assert.equal(entry.instanceID, 469)
   } finally {
     close()
   }
@@ -45,6 +55,10 @@ test('item resolver collapses higher item level variants to the same wishlist ke
   try {
     assert.equal(resolver.getWishlistKey({ itemID: 19019, itemLink: '|Hitem:19019::::::::70:::::|h[Thunderfury]|h' }), 'item:19019')
     assert.equal(resolver.getWishlistKey({ itemID: 19019, itemLink: '|Hitem:19019::::::::70:66::5:5:7982:10355:6652:1507:8767:1:28:1279:::::|h[Thunderfury]|h' }), 'item:19019')
+    
+    const normalized = resolver.normalizeItemData({ itemID: 19019, encounterID: 11502, instanceID: 469 })
+    assert.equal(normalized.encounterID, 11502)
+    assert.equal(normalized.instanceID, 469)
   } finally {
     close()
   }
@@ -90,6 +104,73 @@ test('tracker model groups rows by source and keeps best ilvl separate from poss
     assert.equal(grouped[0].items[1].showTick, true)
     assert.equal(grouped[1].items[0].displayText, 'Unknown Relic')
     assert.equal(grouped[1].label, 'Other')
+  } finally {
+    close()
+  }
+})
+
+test('tracker model groups raid items by boss and sorts bosses by bossRank', async () => {
+  const { module: trackerModel, close } = await loadLuaModule('TrackerModel.lua')
+
+  try {
+    const grouped = trackerModel.buildGroups([
+      { 
+        itemID: 2, 
+        itemName: 'Circuit Breaker', 
+        groupLabel: 'Operation: Floodgate', 
+        isPossessed: true,
+        bossName: 'The Mainframe',
+        bossRank: 2 // Second boss
+      },
+      { 
+        itemID: 1, 
+        itemName: 'Stormlash Dagger', 
+        groupLabel: 'Operation: Floodgate', 
+        isPossessed: false, 
+        bestLootedItemLevel: 262,
+        bossName: 'Enforcer Sunder',
+        bossRank: 1 // First boss
+      },
+    ])
+
+    // Group 1: Operation: Floodgate (Raid)
+    assert.equal(grouped[0].label, 'Operation: Floodgate')
+    
+    // Row 1: Boss Header for rank 1 (Enforcer Sunder)
+    assert.equal(grouped[0].items[0].displayText, 'Enforcer Sunder')
+    assert.equal(grouped[0].items[0].itemID, 'header:Enforcer Sunder')
+    
+    // Row 2: Item 1 (under Sunder)
+    assert.equal(grouped[0].items[1].itemID, 1)
+
+    // Row 3: Boss Header for rank 2 (The Mainframe)
+    assert.equal(grouped[0].items[2].displayText, 'The Mainframe')
+    assert.equal(grouped[0].items[2].itemID, 'header:The Mainframe')
+
+    // Row 4: Item 2 (under Mainframe)
+    assert.equal(grouped[0].items[3].itemID, 2)
+  } finally {
+    close()
+  }
+})
+
+test('tracker model keeps dungeon items in a flat list without boss headers', async () => {
+  const { module: trackerModel, close } = await loadLuaModule('TrackerModel.lua')
+
+  try {
+    const grouped = trackerModel.buildGroups([
+      { 
+        itemID: 3, 
+        itemName: 'Dungeon Blade', 
+        groupLabel: 'The Deadmines', 
+        isPossessed: false,
+        bossName: '' // No boss name provided for dungeon items usually
+      },
+    ])
+
+    assert.equal(grouped[0].label, 'The Deadmines')
+    assert.equal(grouped[0].items[0].displayText, 'Dungeon Blade')
+    assert.equal(grouped[0].items[0].isBossHeader, undefined)
   } finally {
     close()
   }
