@@ -59,7 +59,7 @@ local translations = {
     LOOT_WISHLIST = "Список желаемой добычи",
     WISHLIST = "Список желаний",
     OTHER = "Другое",
-    PLAYER_LOOTED_WISHLIST_ITEM = "%s получил предмет из Вашего списка желаний!",
+    PLAYER_LOOTED_WISHLIST_ITEM = "%s получил(а) предмет из Вашего списка желаний!",
   },
   zhCN = {
     LOOT_WISHLIST = "战利品心愿单",
