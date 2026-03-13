@@ -212,9 +212,7 @@ local function layoutContents(self)
                 -- To avoid layout engine taint (attempting arithmetic on a secret number value)
                 -- when anchoring tooltips to securely pooled native tracker lines, we must
                 -- divorce the GameTooltip from the frame entirely using ANCHOR_NONE and SetPoint.
-                trackerTooltip:SetOwner(UIParent, "ANCHOR_NONE")
-                trackerTooltip:ClearAllPoints()
-                trackerTooltip:SetPoint("TOPRIGHT", self, "TOPLEFT", -4, 0)
+                trackerTooltip:SetOwner(UIParent, "ANCHOR_CURSOR")
 
                 local ref = self.lootWishList_tooltipRef
                 local id = self.lootWishList_itemID

@@ -46,6 +46,30 @@ local function QueueAfterCombat(callback)
 end
 namespace.QueueAfterCombat = QueueAfterCombat
 
+-- Debounce utility: coalesces rapid calls into a single execution after delay
+local function createDebouncedRefresh(delay)
+  local timer = nil
+  local fn = nil
+
+  local function execute()
+    timer = nil
+    if fn then
+      fn()
+    end
+  end
+
+  return function(callback)
+    fn = callback
+    if timer then
+      timer:Cancel()
+    end
+    timer = C_Timer.After(delay, execute)
+  end
+end
+
+-- Create the debounced refresh with 250ms delay
+local debouncedRefresh = createDebouncedRefresh(0.25)
+
 local function getCurrentDb()
   LootWishListDB = LootWishListDB or { characters = {} }
   return LootWishListDB
@@ -87,7 +111,7 @@ end
 
 function namespace.RemoveTrackedItem(itemID)
   namespace.WishlistStore.removeItem(getCurrentDb(), getCharacterKey(), itemID)
-  namespace.RefreshAll()
+  namespace.RefreshAllImmediate()
 end
 
 function namespace.GetCurrentSourceLabel(itemData)
@@ -171,7 +195,7 @@ function namespace.SetTrackedFromItemData(itemData, tracked)
     namespace.WishlistStore.removeItem(db, characterKey, normalized.itemID)
   end
 
-  namespace.RefreshAll()
+  namespace.RefreshAllImmediate()
 end
 
 function namespace.RefreshPossessionState()
@@ -344,12 +368,23 @@ function namespace.RefreshTracker()
   namespace.TrackerUI.Refresh(namespace, namespace.BuildTrackerGroups())
 end
 
-function namespace.RefreshAll()
+-- Internal function that does the actual refresh work
+local function doRefreshAll()
   namespace.RefreshPossessionState()
   namespace.RefreshTracker()
   if namespace.AdventureGuideUI then
     namespace.AdventureGuideUI.Refresh(namespace)
   end
+end
+
+-- Public function: debounced refresh for non-critical events
+function namespace.RefreshAll()
+  debouncedRefresh(doRefreshAll)
+end
+
+-- Immediate refresh without debouncing - for critical events (login, user actions)
+function namespace.RefreshAllImmediate()
+  doRefreshAll()
 end
 
 local function registerEvents()
@@ -370,7 +405,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
     namespace.TrackerUI.Initialize(namespace)
     namespace.AdventureGuideUI.Initialize(namespace)
     registerEvents()
-    namespace.RefreshAll()
+    namespace.RefreshAllImmediate()
     return
   end
 
@@ -399,7 +434,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 
   if event == "BANKFRAME_OPENED" then
     namespace.state.bankKnown = true
-    namespace.RefreshAll()
+    namespace.RefreshAllImmediate()
     return
   end
 
@@ -409,8 +444,8 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
   end
 
   if event == "PLAYER_REGEN_ENABLED" then
-    -- Player left combat - refresh to catch any deferred updates
-    namespace.RefreshAll()
+    -- Player left combat - immediate refresh to show updates right away
+    namespace.RefreshAllImmediate()
     return
   end
 

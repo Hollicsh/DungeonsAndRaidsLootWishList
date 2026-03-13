@@ -188,8 +188,10 @@ function AdventureGuideUI.Refresh(namespace)
   end
 
   -- Only show checkboxes on Dungeons and Raids tabs, not on Item Sets/Journeys
-  local isDungeonTab = type(EncounterJournal_IsDungeonTabSelected) == "function" and EncounterJournal_IsDungeonTabSelected(EncounterJournal)
-  local isRaidTab = type(EncounterJournal_IsRaidTabSelected) == "function" and EncounterJournal_IsRaidTabSelected(EncounterJournal)
+  local isDungeonTab = type(EncounterJournal_IsDungeonTabSelected) == "function" and
+      EncounterJournal_IsDungeonTabSelected(EncounterJournal)
+  local isRaidTab = type(EncounterJournal_IsRaidTabSelected) == "function" and
+      EncounterJournal_IsRaidTabSelected(EncounterJournal)
   local shouldShowCheckboxes = isDungeonTab or isRaidTab
 
   local frame = nil
@@ -229,7 +231,7 @@ function AdventureGuideUI.Initialize(namespace)
   local function startUpdater()
     updater:SetScript("OnUpdate", function(_, elapsed)
       namespace.journalElapsed = (namespace.journalElapsed or 0) + elapsed
-      if namespace.journalElapsed < 0.25 then
+      if namespace.journalElapsed < 0.1 then
         return
       end
 
