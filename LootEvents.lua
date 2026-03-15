@@ -60,8 +60,8 @@ local function getLootPatterns()
     for _, globalName in ipairs(globalStringsToTry) do
       local globalString = _G[globalName]
       if type(globalString) == "string" then
-        local p = globalString:gsub("([%(%)%.%+%-%*%?%[%]%^%$])", "%%%1")
-        p = p:gsub("%%%d?%$?[sd]", "(.-)")
+        local p = string.gsub(globalString, "([%(%)%.%+%-%*%?%[%]%^%$])", "%%%1")
+        p = string.gsub(p, "%%%d?%$?[sd]", "(.-)")
         table.insert(EVENT_PATTERNS, "^" .. p .. "$")
       end
     end
@@ -77,12 +77,12 @@ function LootEvents.HandleChatLoot(namespace, message, playerNameEvent)
 
   local playerMatch, itemLink
   for _, pattern in ipairs(getLootPatterns()) do
-    local match1, match2 = message:match(pattern)
+    local match1, match2 = string.match(message, pattern)
     if match1 then
-      if match1:find("|Hitem:") then
+      if string.find(match1, "|Hitem:", 1, true) then
         itemLink = match1
         playerMatch = match2
-      elseif match2 and match2:find("|Hitem:") then
+      elseif match2 and string.find(match2, "|Hitem:", 1, true) then
         itemLink = match2
         playerMatch = match1
       end

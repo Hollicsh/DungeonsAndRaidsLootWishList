@@ -18,7 +18,7 @@ function ItemResolver.getItemIdFromLink(itemLink)
     return nil
   end
 
-  local itemId = itemLink:match("item:(%d+)")
+  local itemId = string.match(itemLink, "item:(%d+)")
   if itemId == nil then
     return nil
   end

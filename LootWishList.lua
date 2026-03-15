@@ -352,7 +352,6 @@ function namespace.BuildTrackerGroups()
     local itemName = item.itemName or GetItemInfo(item.itemID) or item.itemLink or ("Item " .. tostring(item.itemID))
     local groupLabel = namespace.SourceResolver.getGroupLabel({
       instanceName = item.sourceLabel,
-      currentInstanceName = namespace.GetCurrentSourceLabel(nil),
     })
     local bestOwnedLink = bestOwnedLinks[key]
     local tooltipRef = namespace.ItemResolver.getTooltipRef({
