@@ -187,3 +187,8 @@ When modifying UI presentation:
 - prefer a small, local change over a broad refactor
 - prefer explicit data flow over implicit coupling
 - prefer matching Blizzard's tracker patterns over inventing new ones
+
+### When debugging and coding
+
+- Refer to wow-addon-taint.md to understand taint and how to avoid it
+- Refer to the Blizzard UI Source code at https://github.com/tomrus88/BlizzardInterfaceCode/tree/master/Interface/AddOns when needed

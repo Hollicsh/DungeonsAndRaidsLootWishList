@@ -70,6 +70,7 @@ local function getLootPatterns()
 end
 
 function LootEvents.HandleChatLoot(namespace, message, playerNameEvent)
+  -- Process immediately to avoid accessing tainted message later
   if type(message) ~= "string" then
     return
   end
@@ -108,17 +109,9 @@ function LootEvents.HandleChatLoot(namespace, message, playerNameEvent)
     return
   end
 
-  if player and itemLink then
-    namespace.ShowLootDialog(player, itemLink)
-  else
-    -- Fallback ideally should not happen if we parsed correctly
-    if type(StaticPopup_Show) == "function" then
-      local data = {
-        link = itemLink,
-        useLinkForItemInfo = true
-      }
-      StaticPopup_Show("LOOT_WISHLIST_ALERT", message, nil, data)
-    end
+  local alertRecord = namespace.BuildLootAlertRecord(itemID, player)
+  if alertRecord then
+    namespace.QueueLootAlert(alertRecord)
   end
 end
 
