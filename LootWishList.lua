@@ -117,6 +117,9 @@ end
 function namespace.RemoveTrackedItem(itemID)
   namespace.WishlistStore.removeItem(getCurrentDb(), getCharacterKey(), itemID)
   namespace.RefreshAllImmediate()
+  if namespace.AdventureGuideUI and namespace.AdventureGuideUI.Refresh then
+    namespace.AdventureGuideUI.Refresh(namespace)
+  end
 end
 
 function namespace.GetCurrentSourceLabel(itemData)
@@ -204,6 +207,9 @@ function namespace.SetTrackedFromItemData(itemData, tracked)
   end
 
   namespace.RefreshAllImmediate()
+  if namespace.AdventureGuideUI and namespace.AdventureGuideUI.Refresh then
+    namespace.AdventureGuideUI.Refresh(namespace)
+  end
 end
 
 function namespace.RefreshPossessionState()
@@ -497,9 +503,6 @@ end
 local function doRefreshAll()
   namespace.RefreshPossessionState()
   namespace.RefreshTracker()
-  if namespace.AdventureGuideUI then
-    namespace.AdventureGuideUI.Refresh(namespace)
-  end
 end
 
 -- Public function: debounced refresh for non-critical events
