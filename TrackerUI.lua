@@ -4,6 +4,7 @@ local trackerFrame = nil
 local trackerTooltip = CreateFrame("GameTooltip", "LootWishListTrackerTooltip", UIParent, "GameTooltipTemplate")
 local currentGroups = {}
 local knownRowKeys = {}
+local knownItemStates = {}
 local ns = nil
 
 local COLLAPSE_ATLAS = "ui-questtrackerbutton-secondary-collapse"
@@ -17,7 +18,6 @@ local CONTENT_TOP_GAP = 4
 local ITEM_TEXT_PADDING = 12
 local STANDALONE_HEADER_OFFSET_Y = -3
 local FRAME_LEFT_PADDING = 10
-local CLICKABLE_LABEL_HOVER = { r = 1.0, g = 0.93, b = 0.15 }
 local STANDALONE_HEADER_BOTTOM_MARGIN = 10
 
 local function playAddAnimation(frame)
@@ -27,6 +27,91 @@ local function playAddAnimation(frame)
     ObjectiveTracker_PlayBlockAddedAnimation(frame.headerFrame or frame)
   elseif type(UIFrameFlash) == "function" then
     UIFrameFlash(frame, 0.2, 0.3, 0.8, false, 0, 0)
+  end
+end
+
+local function ensureHeaderAnimation(row)
+  if not row or row.headerGlow then
+    return row
+  end
+
+  row.headerGlow = row:CreateTexture(nil, "OVERLAY")
+  row.headerGlow:SetAtlas("ui-questtracker-objfx-barglow")
+  row.headerGlow:SetAlpha(0)
+  row.headerGlow:SetSize(240, ROW_HEIGHT)
+  row.headerGlow:SetPoint("TOPLEFT", row.text, "TOPLEFT", 0, 3)
+  row.headerGlow:SetPoint("BOTTOMLEFT", row.text, "BOTTOMLEFT", 0, -4)
+
+  row.headerGlow:SetTexCoord(0, 1, 0, 1)
+
+  row.headerAddAnim = row:CreateAnimationGroup()
+
+  local addShow = row.headerAddAnim:CreateAnimation("Alpha")
+  addShow:SetChildKey("headerGlow")
+  addShow:SetOrder(1)
+  addShow:SetDuration(0)
+  addShow:SetFromAlpha(0)
+  addShow:SetToAlpha(1)
+
+  local addFade = row.headerAddAnim:CreateAnimation("Alpha")
+  addFade:SetChildKey("headerGlow")
+  addFade:SetOrder(1)
+  addFade:SetDuration(0.41)
+  addFade:SetStartDelay(0.33)
+  addFade:SetFromAlpha(1)
+  addFade:SetToAlpha(0)
+
+  local textFade = row.headerAddAnim:CreateAnimation("Alpha")
+  textFade:SetChildKey("text")
+  textFade:SetOrder(1)
+  textFade:SetDuration(0.03)
+  textFade:SetFromAlpha(0)
+  textFade:SetToAlpha(1)
+
+  row.headerCompleteAnim = row:CreateAnimationGroup()
+  local completeShow = row.headerCompleteAnim:CreateAnimation("Alpha")
+  completeShow:SetChildKey("headerGlow")
+  completeShow:SetOrder(1)
+  completeShow:SetDuration(0)
+  completeShow:SetFromAlpha(0)
+  completeShow:SetToAlpha(1)
+
+  local completeFade = row.headerCompleteAnim:CreateAnimation("Alpha")
+  completeFade:SetChildKey("headerGlow")
+  completeFade:SetOrder(1)
+  completeFade:SetDuration(0.33)
+  completeFade:SetStartDelay(0.33)
+  completeFade:SetFromAlpha(1)
+  completeFade:SetToAlpha(0)
+
+  local function onAnimStop()
+    row.headerGlow:SetAlpha(0)
+    row.text:SetAlpha(1)
+  end
+
+  row.headerAddAnim:SetScript("OnFinished", onAnimStop)
+  row.headerAddAnim:SetScript("OnStop", onAnimStop)
+  row.headerCompleteAnim:SetScript("OnFinished", onAnimStop)
+  row.headerCompleteAnim:SetScript("OnStop", onAnimStop)
+
+  return row
+end
+
+local function playHeaderAnimation(row, animationType)
+  ensureHeaderAnimation(row)
+  if not row or not row.headerGlow then
+    return
+  end
+
+  row.headerAddAnim:Stop()
+  row.headerCompleteAnim:Stop()
+  row.headerGlow:SetAlpha(0)
+  row.text:SetAlpha(1)
+
+  if animationType == "complete" then
+    row.headerCompleteAnim:Play()
+  else
+    row.headerAddAnim:Play()
   end
 end
 
@@ -212,6 +297,12 @@ local function hideUnusedRows(frame, firstUnusedIndex)
 
   for index = firstUnusedIndex, #frame.rows do
     local row = frame.rows[index]
+    if row.headerAddAnim then
+      row.headerAddAnim:Stop()
+    end
+    if row.headerCompleteAnim then
+      row.headerCompleteAnim:Stop()
+    end
     row:Hide()
     row:SetScript("OnClick", nil)
     row:SetScript("OnEnter", nil)
@@ -284,38 +375,6 @@ local function getHeaderTextInset(frame)
   return inset
 end
 
-local function isGroupNavigable(groupLabel, instanceID)
-  return type(instanceID) == "number" and instanceID > 0 and groupLabel ~= ns.GetText("OTHER")
-end
-
-local function openEncounterJournalForGroup(instanceID, groupLabel)
-  if type(instanceID) ~= "number" or instanceID <= 0 then
-    return
-  end
-
-  if groupLabel == ns.GetText("OTHER") then
-    return
-  end
-
-  if EncounterJournal and EncounterJournal:IsShown() and EncounterJournal.instanceID == instanceID then
-    if type(EncounterJournal.Hide) == "function" then
-      EncounterJournal:Hide()
-    end
-    return
-  end
-
-  if type(EncounterJournal_OpenJournal) ~= "function" and C_AddOns and type(C_AddOns.LoadAddOn) == "function" then
-    C_AddOns.LoadAddOn("Blizzard_EncounterJournal")
-  end
-
-  if type(EncounterJournal_OpenJournal) == "function" then
-    EncounterJournal_OpenJournal(nil, instanceID)
-    if EncounterJournal and EncounterJournal.encounter and EncounterJournal.encounter.info and EncounterJournal.encounter.info.lootTab then
-      EncounterJournal.encounter.info.lootTab:Click()
-    end
-  end
-end
-
 local function setWishlistCollapse(frame, collapsed)
   frame.lootWishlistCollapsed = collapsed and true or false
   if frame.headerMinimizeButton then
@@ -335,7 +394,6 @@ end
 
 local function renderGroupHeader(row, group, itemCount, collapsed)
   local headerInset = getHeaderTextInset(trackerFrame)
-  local isNavigable = isGroupNavigable(group.label, group.instanceID)
   row.tick:Hide()
   row.dash:Hide()
   row.collapseButton:Show()
@@ -362,24 +420,9 @@ local function renderGroupHeader(row, group, itemCount, collapsed)
   row.tooltipRef = nil
   row.itemID = nil
 
-  row:SetScript("OnClick", function(self, button)
-    if button == "LeftButton" and isNavigable then
-      openEncounterJournalForGroup(self.instanceID, self.groupLabel)
-    end
-  end)
-
-  if isNavigable then
-    row:SetScript("OnEnter", function(self)
-      self.text:SetTextColor(CLICKABLE_LABEL_HOVER.r, CLICKABLE_LABEL_HOVER.g, CLICKABLE_LABEL_HOVER.b)
-    end)
-    row:SetScript("OnLeave", function(self)
-      local r, g, b = GameFontNormal:GetTextColor()
-      self.text:SetTextColor(r, g, b)
-    end)
-  else
-    row:SetScript("OnEnter", nil)
-    row:SetScript("OnLeave", nil)
-  end
+  row:SetScript("OnClick", nil)
+  row:SetScript("OnEnter", nil)
+  row:SetScript("OnLeave", nil)
   row.collapseButton:SetScript("OnClick", function()
     ns.WishlistStore.toggleGroupCollapse(LootWishListDB, getCharacterKey(), group.label)
     TrackerUI.Refresh(ns, currentGroups)
@@ -550,6 +593,7 @@ local function syncTrackerFrame()
   local yOffset = 0
   local allKeys = {}
   local addedNewItem = false
+  local groupAnimations = {}
   local db = LootWishListDB
   local charKey = getCharacterKey()
 
@@ -563,7 +607,19 @@ local function syncTrackerFrame()
         if not knownRowKeys[uniqueKey] then
           knownRowKeys[uniqueKey] = true
           addedNewItem = true
+          groupAnimations[group.label] = groupAnimations[group.label] or "add"
         end
+
+        local previousState = knownItemStates[uniqueKey]
+        if previousState and not previousState.showTick and item.showTick then
+          if groupAnimations[group.label] ~= "add" then
+            groupAnimations[group.label] = "complete"
+          end
+        end
+
+        knownItemStates[uniqueKey] = {
+          showTick = item.showTick == true,
+        }
       end
     end
 
@@ -573,6 +629,9 @@ local function syncTrackerFrame()
     headerRow:SetPoint("TOPLEFT", frame.contentFrame or frame, "TOPLEFT", 0, yOffset)
     headerRow:SetPoint("TOPRIGHT", frame.contentFrame or frame, "TOPRIGHT", 0, yOffset)
     renderGroupHeader(headerRow, group, itemCount, collapsed)
+    if groupAnimations[group.label] then
+      playHeaderAnimation(headerRow, groupAnimations[group.label])
+    end
     yOffset = yOffset - ROW_HEIGHT
     rowIndex = rowIndex + 1
 
@@ -593,6 +652,7 @@ local function syncTrackerFrame()
   for knownKey in pairs(knownRowKeys) do
     if not allKeys[knownKey] then
       knownRowKeys[knownKey] = nil
+      knownItemStates[knownKey] = nil
     end
   end
 

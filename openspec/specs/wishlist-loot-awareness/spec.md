@@ -25,7 +25,7 @@ When the active character loots a tracked item, the addon SHALL update the remem
 
 ### Requirement: Other-player tracked-item loot shows an alert without changing local ownership state
 
-When another player loots an item that matches the active character's tracked wishlist, the addon SHALL normalize the relevant alert data immediately and SHALL show an interactive item alert dialog identifying the looting player and the item when the UI is in a safe state for dialog display. If the UI is already in a safe state, the alert MAY appear immediately. The addon SHALL NOT change the active character's possession indicator or remembered best looted item level based on another player's loot.
+When another player loots an item that matches the active character's tracked wishlist, the addon SHALL normalize the relevant alert data immediately into addon-owned values and SHALL show an interactive item alert dialog identifying the looting player and the item when the UI is in a safe state for dialog display. If the UI is already in a safe state, the alert MAY appear immediately. The addon SHALL NOT change the active character's possession indicator or remembered best looted item level based on another player's loot. Loot-event handling SHALL NOT depend on later unsafe indexing of secret or taint-sensitive raw event payloads.
 
 #### Scenario: Another player loots a tracked item while UI state is safe
 
@@ -41,6 +41,12 @@ When another player loots an item that matches the active character's tracked wi
 
 - **WHEN** another player loots an item that matches one of the active character's tracked wishlist items
 - **THEN** the addon does not change the active character's stored best looted item level or possession-derived green tick
+
+#### Scenario: Loot-event processing does not fail on taint-sensitive payloads
+
+- **WHEN** the relevant loot event arrives in a taint-sensitive form such as a secret loot-message payload
+- **THEN** the addon avoids unsafe direct indexing of that raw payload
+- **AND** continues to preserve stable tracker and tooltip behavior elsewhere in the UI
 
 ### Requirement: Loot roll frames are tagged for tracked items
 

@@ -49,47 +49,42 @@ When native Objective Tracker content is visible, the addon SHALL position the `
 
 ### Requirement: Tracker items are grouped by loot source
 
-The addon SHALL group tracked items in the objective tracker by their identified loot source, such as the dungeon or raid where the item drops. If no loot source can be identified for a tracked item, the addon SHALL place that item under an `Other` group.
+The addon SHALL group tracked items in the objective tracker by persisted loot-source metadata already stored on the wishlist entry, such as the dungeon or raid where the item drops. Tracker grouping SHALL NOT depend on live Encounter Journal state during generic tracker rebuilds or post-loot refreshes. If no persisted loot source can be identified for a tracked item, the addon SHALL place that item under an `Other` group.
 
-#### Scenario: Item with identified source is grouped under that source
+#### Scenario: Item with stored source is grouped under that source
 
-- **WHEN** a tracked item has a known dungeon or raid source
-- **THEN** the objective tracker displays that item under a group named for that source
+- **WHEN** a tracked item has a stored dungeon or raid source on its wishlist entry
+- **THEN** the objective tracker displays that item under a group named for that stored source
 
-#### Scenario: Item with unknown source falls back to Other
+#### Scenario: Item with missing stored source falls back to Other
 
-- **WHEN** a tracked item does not have an identified loot source
+- **WHEN** a tracked item does not have persisted loot-source metadata on its wishlist entry
 - **THEN** the objective tracker displays that item under the `Other` group
+
+#### Scenario: Tracker rebuild does not consult live Encounter Journal state for grouping
+
+- **WHEN** the addon rebuilds tracker groups after loot, bag, bank, equipment, or combat-state updates
+- **THEN** tracker grouping is computed without depending on live Encounter Journal selection or title state
 
 ### Requirement: Source group headers open Adventure Guide loot view when clicked
 
-The addon SHALL make source group headers in the `Loot Wishlist` section clickable when the group represents a known dungeon or raid with a valid instance ID. Clicking such a header SHALL open the Adventure Guide to the corresponding dungeon or raid and SHALL present that instance in its loot context. Clicking the group's collapse or expand button SHALL continue to affect only collapse state and SHALL NOT open the Adventure Guide.
+The addon SHALL NOT open the Adventure Guide or Encounter Journal when the user clicks a source group header in the `Loot Wishlist` section. Source group headers remain informational labels for grouping only. Clicking the group's collapse or expand button SHALL continue to affect only collapse state.
 
-#### Scenario: Click dungeon group header opens Adventure Guide loot view
+#### Scenario: Click dungeon or raid group header does not open Encounter Journal
 
-- **WHEN** the user clicks the left mouse button on a dungeon source group header in the `Loot Wishlist` section and the group has a valid instance ID
-- **THEN** the Adventure Guide opens to the corresponding dungeon in its loot context
-
-#### Scenario: Click raid group header opens Adventure Guide loot view
-
-- **WHEN** the user clicks the left mouse button on a raid source group header in the `Loot Wishlist` section and the group has a valid instance ID
-- **THEN** the Adventure Guide opens to the corresponding raid in its loot context
+- **WHEN** the user clicks the left mouse button on a dungeon or raid source group header in the `Loot Wishlist` section
+- **THEN** the Adventure Guide or Encounter Journal is not opened
 
 #### Scenario: Click Other group header does nothing
 
 - **WHEN** the user clicks the `Other` source group header in the `Loot Wishlist` section
-- **THEN** the Adventure Guide is not opened
+- **THEN** the Adventure Guide or Encounter Journal is not opened
 
-#### Scenario: Click group without valid instance ID does nothing
-
-- **WHEN** the user clicks a source group header that does not have a valid instance ID
-- **THEN** the Adventure Guide is not opened
-
-#### Scenario: Collapse button click does not trigger Adventure Guide navigation
+#### Scenario: Collapse button click still only changes collapse state
 
 - **WHEN** the user clicks the collapse or expand button on a source group header
 - **THEN** only the group's collapse state changes
-- **AND** the Adventure Guide is not opened
+- **AND** the Adventure Guide or Encounter Journal is not opened
 
 ### Requirement: Tracker rows show current possession and best looted item level separately
 
@@ -144,14 +139,19 @@ The addon SHALL allow the user to remove a tracked item from the wishlist by Shi
 - **WHEN** the user Shift-clicks a tracked item in the `Loot Wishlist` section
 - **THEN** the addon removes the item from the active character's wishlist and updates the tracker accordingly
 
-### Requirement: Newly added tracker items use native tracker animation
+### Requirement: Newly added tracker items mirror native tracker animation
 
-When an item is newly added to the `Loot Wishlist` section, the addon SHALL reuse the same style of add-entry animation used by the native objective tracker when a new quest is tracked.
+When a tracked item is newly added to the `Loot Wishlist` section, the addon SHALL mirror the add-entry animation style used by the native objective tracker on the affected dungeon or raid source-group header. When a tracked item in a source group newly transitions into the completed or possessed state, the addon SHALL mirror the native tracker-style header glow animation on that same source-group header.
 
-#### Scenario: Newly tracked item appears in the tracker
+#### Scenario: Newly tracked item animates its source header
 
 - **WHEN** the user adds an item to the wishlist and it appears in the objective tracker for the first time
-- **THEN** the item entry uses the native objective-tracker add animation style rather than a custom animation
+- **THEN** the source-group header for that item plays a native objective-tracker style add animation
+
+#### Scenario: Newly completed tracked item animates its source header
+
+- **WHEN** a tracked item in a source group newly gains the completed or possessed tracker state
+- **THEN** the source-group header for that item plays a native objective-tracker style completion glow animation
 
 ### Requirement: Tracker visuals prefer native Blizzard UI assets
 
