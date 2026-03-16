@@ -99,7 +99,7 @@ local translations = {
     EQUIPMENT_SLOT = "Слот",
     DROPS_FROM = "Выпадает из: %s",
     DROPS_FROM_RAID = "Выпадает из: %s - %s",
-    PLAYER_LOOTED_WISHLIST_ITEM = "%s получил предмет из Вашего списка желаний!",
+    PLAYER_LOOTED_WISHLIST_ITEM = "%s получил(а) предмет из Вашего списка желаний!",
   },
   zhCN = {
     LOOT_WISHLIST = "战利品心愿单",
