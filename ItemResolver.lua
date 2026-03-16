@@ -36,6 +36,12 @@ function ItemResolver.normalizeItemData(itemData)
     return nil
   end
 
+  local inventoryType = itemData.inventoryType or itemData.invType or itemData.equipLoc
+  if (type(inventoryType) ~= "string" or inventoryType == "") and type(GetItemInfoInstant) == "function" then
+    local _, _, _, resolvedInventoryType = GetItemInfoInstant(itemId)
+    inventoryType = resolvedInventoryType
+  end
+
   return {
     itemID = itemId,
     wishlistKey = ItemResolver.getWishlistKey({ itemID = itemId }),
@@ -45,6 +51,7 @@ function ItemResolver.normalizeItemData(itemData)
     instanceName = itemData.instanceName,
     encounterID = itemData.encounterID or itemData.bossID,
     instanceID = itemData.instanceID,
+    inventoryType = inventoryType,
   }
 end
 

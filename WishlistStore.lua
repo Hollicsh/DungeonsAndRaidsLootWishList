@@ -8,11 +8,53 @@ local function normalizeItemId(itemId)
   return tostring(itemId)
 end
 
+local function ensureTrackerState(character)
+  local legacyCollapsedGroups = character.collapsedGroups or {}
+
+  character.tracker = character.tracker or {}
+  character.tracker.groupBy = character.tracker.groupBy == "slot" and "slot" or "source"
+  character.tracker.collapsedGroupsByMode = character.tracker.collapsedGroupsByMode or {}
+  character.tracker.collapsedGroupsByMode.source = character.tracker.collapsedGroupsByMode.source or {}
+  character.tracker.collapsedGroupsByMode.slot = character.tracker.collapsedGroupsByMode.slot or {}
+
+  if not character.tracker.legacyCollapsedGroupsMigrated then
+    for groupKey, collapsed in pairs(legacyCollapsedGroups) do
+      if collapsed then
+        character.tracker.collapsedGroupsByMode.source[groupKey] = true
+      end
+    end
+
+    character.tracker.legacyCollapsedGroupsMigrated = true
+  end
+
+  return character.tracker
+end
+
+local function getCollapsedGroups(character, groupBy)
+  local tracker = ensureTrackerState(character)
+  local mode = groupBy == "slot" and "slot" or "source"
+  tracker.collapsedGroupsByMode[mode] = tracker.collapsedGroupsByMode[mode] or {}
+  return tracker.collapsedGroupsByMode[mode], mode
+end
+
+local function resolveInventoryType(itemId)
+  if itemId == nil or type(GetItemInfoInstant) ~= "function" then
+    return nil
+  end
+
+  local _, _, _, inventoryType = GetItemInfoInstant(itemId)
+  if type(inventoryType) == "string" and inventoryType ~= "" then
+    return inventoryType
+  end
+
+  return nil
+end
+
 function WishlistStore.ensureCharacter(db, characterKey)
   db.characters = db.characters or {}
   db.characters[characterKey] = db.characters[characterKey] or { items = {}, collapsedGroups = {} }
   db.characters[characterKey].items = db.characters[characterKey].items or {}
-  db.characters[characterKey].collapsedGroups = db.characters[characterKey].collapsedGroups or {}
+  ensureTrackerState(db.characters[characterKey])
 
   return db.characters[characterKey]
 end
@@ -73,6 +115,18 @@ function WishlistStore.setItemMetadata(db, characterKey, itemId, metadata)
   if metadata.instanceID ~= nil then
     entry.instanceID = metadata.instanceID
   end
+
+  if metadata.bossName ~= nil then
+    entry.bossName = metadata.bossName
+  end
+
+  if metadata.inventoryType ~= nil then
+    entry.inventoryType = metadata.inventoryType
+  end
+
+  if entry.inventoryType == nil then
+    entry.inventoryType = resolveInventoryType(itemId)
+  end
 end
 
 function WishlistStore.getSourceLabel(db, characterKey, itemId)
@@ -118,20 +172,36 @@ function WishlistStore.removeItem(db, characterKey, itemId)
   }
 end
 
-function WishlistStore.setGroupCollapsed(db, characterKey, label, collapsed)
+function WishlistStore.getGroupingMode(db, characterKey)
   local character = WishlistStore.ensureCharacter(db, characterKey)
-  character.collapsedGroups[label] = collapsed and true or nil
+  local tracker = ensureTrackerState(character)
+  return tracker.groupBy
 end
 
-function WishlistStore.isGroupCollapsed(db, characterKey, label)
+function WishlistStore.setGroupingMode(db, characterKey, groupBy)
   local character = WishlistStore.ensureCharacter(db, characterKey)
-  return character.collapsedGroups[label] == true
+  local tracker = ensureTrackerState(character)
+  tracker.groupBy = groupBy == "slot" and "slot" or "source"
+  return tracker.groupBy
 end
 
-function WishlistStore.toggleGroupCollapse(db, characterKey, label)
+function WishlistStore.setGroupCollapsed(db, characterKey, groupBy, groupKey, collapsed)
   local character = WishlistStore.ensureCharacter(db, characterKey)
-  local currentState = character.collapsedGroups[label] == true
-  WishlistStore.setGroupCollapsed(db, characterKey, label, not currentState)
+  local collapsedGroups = getCollapsedGroups(character, groupBy)
+  collapsedGroups[groupKey] = collapsed and true or nil
+end
+
+function WishlistStore.isGroupCollapsed(db, characterKey, groupBy, groupKey)
+  local character = WishlistStore.ensureCharacter(db, characterKey)
+  local collapsedGroups = getCollapsedGroups(character, groupBy)
+  return collapsedGroups[groupKey] == true
+end
+
+function WishlistStore.toggleGroupCollapse(db, characterKey, groupBy, groupKey)
+  local character = WishlistStore.ensureCharacter(db, characterKey)
+  local collapsedGroups = getCollapsedGroups(character, groupBy)
+  local currentState = collapsedGroups[groupKey] == true
+  WishlistStore.setGroupCollapsed(db, characterKey, groupBy, groupKey, not currentState)
   return not currentState
 end
 
@@ -150,6 +220,8 @@ function WishlistStore.getTrackedItems(db, characterKey)
         itemLink = entry.itemLink,
         encounterID = entry.encounterID,
         instanceID = entry.instanceID,
+        bossName = entry.bossName,
+        inventoryType = entry.inventoryType,
       })
     end
   end
@@ -166,8 +238,14 @@ function WishlistStore.performBackfill(db, characterKey, namespace)
   local itemsPending = {}
 
   for itemID, entry in pairs(character.items) do
-    if entry.tracked and (not entry.encounterID or not entry.instanceID) then
+    local needsRaidBossName = entry.instanceID and namespace and namespace.IsRaidInstance and namespace.IsRaidInstance(entry.instanceID)
+    if entry.tracked and (not entry.encounterID or not entry.instanceID or not entry.sourceLabel or not entry.inventoryType or
+        (needsRaidBossName and not entry.bossName)) then
       itemsPending[tonumber(itemID)] = entry
+    end
+
+    if entry.tracked and not entry.inventoryType then
+      entry.inventoryType = resolveInventoryType(tonumber(itemID))
     end
   end
 
@@ -206,6 +284,11 @@ function WishlistStore.performBackfill(db, characterKey, namespace)
               if litemID and itemsPending[litemID] then
                 itemsPending[litemID].encounterID = encounterID
                 itemsPending[litemID].instanceID = instanceID
+                itemsPending[litemID].sourceLabel = itemsPending[litemID].sourceLabel or name
+                if isRaid == 1 then
+                  itemsPending[litemID].bossName = itemsPending[litemID].bossName or ename
+                end
+                itemsPending[litemID].inventoryType = itemsPending[litemID].inventoryType or resolveInventoryType(litemID)
               end
             end
           end
@@ -217,14 +300,44 @@ function WishlistStore.performBackfill(db, characterKey, namespace)
   end
 end
 
+function WishlistStore.repairTrackedMetadata(db, characterKey, namespace)
+  local character = WishlistStore.ensureCharacter(db, characterKey)
+  local changed = false
+
+  for itemID, entry in pairs(character.items) do
+    local numericItemID = tonumber(itemID)
+
+    if entry.tracked then
+      if not entry.inventoryType then
+        local inventoryType = resolveInventoryType(numericItemID)
+        if inventoryType then
+          entry.inventoryType = inventoryType
+          changed = true
+        end
+      end
+
+      if entry.instanceID and entry.bossName and namespace and namespace.IsRaidInstance and not namespace.IsRaidInstance(entry.instanceID) then
+        entry.bossName = nil
+        changed = true
+      end
+    end
+  end
+
+  return changed
+end
+
 function WishlistStore.runMigration(db, namespace)
-  if db.version == 2 then return end
+  if db.version == 3 then return end
+
+  for characterKey, _ in pairs(db.characters or {}) do
+    WishlistStore.ensureCharacter(db, characterKey)
+  end
 
   for characterKey, _ in pairs(db.characters or {}) do
     WishlistStore.performBackfill(db, characterKey, namespace)
   end
 
-  db.version = 2
+  db.version = 3
 end
 
 local _, namespace = ...

@@ -16,6 +16,7 @@ local TRACKER_SECTION_GAP = -10
 local WISHLIST_HEADER_TOP_PADDING = 10
 local CONTENT_TOP_GAP = 4
 local ITEM_TEXT_PADDING = 12
+local HEADER_CONTROL_GAP = 6
 local STANDALONE_HEADER_OFFSET_Y = -3
 local FRAME_LEFT_PADDING = 10
 local STANDALONE_HEADER_BOTTOM_MARGIN = 10
@@ -310,10 +311,24 @@ local function hideUnusedRows(frame, firstUnusedIndex)
     row.collapseButton:SetScript("OnClick", nil)
     row.tooltipRef = nil
     row.itemID = nil
-    row.groupLabel = nil
+    row.groupKey = nil
+    row.groupMode = nil
     row.instanceID = nil
     row.isBossHeader = nil
+    row.tooltipFooter = nil
   end
+end
+
+local function getGroupingButtonText()
+  if not ns or type(ns.GetTrackerGroupingMode) ~= "function" then
+    return ""
+  end
+
+  if ns.GetTrackerGroupingMode() == "slot" then
+    return ns.GetText("EQUIPMENT_SLOT")
+  end
+
+  return ns.GetText("LOOT_SOURCE")
 end
 
 local function showTrackerTooltip(row)
@@ -336,6 +351,11 @@ local function showTrackerTooltip(row)
     trackerTooltip:SetHyperlink(ref)
   elseif id and trackerTooltip.SetItemByID then
     trackerTooltip:SetItemByID(id)
+  end
+
+  if type(row.tooltipFooter) == "string" and row.tooltipFooter ~= "" then
+    trackerTooltip:AddLine(" ")
+    trackerTooltip:AddLine(row.tooltipFooter, 0.75, 0.75, 0.75, true)
   end
 
   trackerTooltip:Show()
@@ -414,17 +434,19 @@ local function renderGroupHeader(row, group, itemCount, collapsed)
     row.text:SetText(group.label)
   end
 
-  row.groupLabel = group.label
+  row.groupKey = group.key
+  row.groupMode = group.mode
   row.instanceID = group.instanceID
   row.isBossHeader = false
   row.tooltipRef = nil
   row.itemID = nil
+  row.tooltipFooter = nil
 
   row:SetScript("OnClick", nil)
   row:SetScript("OnEnter", nil)
   row:SetScript("OnLeave", nil)
   row.collapseButton:SetScript("OnClick", function()
-    ns.WishlistStore.toggleGroupCollapse(LootWishListDB, getCharacterKey(), group.label)
+    ns.WishlistStore.toggleGroupCollapse(LootWishListDB, getCharacterKey(), group.mode, group.key)
     TrackerUI.Refresh(ns, currentGroups)
   end)
 
@@ -487,6 +509,7 @@ local function renderItemRow(row, item)
     row.isBossHeader = false
     row.itemID = item.itemID
     row.tooltipRef = item.displayLink or item.tooltipRef
+    row.tooltipFooter = item.tooltipFooter
     row:SetScript("OnEnter", function(self)
       showTrackerTooltip(self)
     end)
@@ -500,7 +523,8 @@ local function renderItemRow(row, item)
     end)
   end
 
-  row.groupLabel = nil
+  row.groupKey = nil
+  row.groupMode = nil
   row.instanceID = nil
   row:Show()
 end
@@ -536,6 +560,11 @@ local function syncTrackerFrame()
   local headerText = frame.headerText or frame.headerFrame.Text or frame.headerFrame.HeaderText
   if headerText then
     headerText:SetText(ns.GetText("LOOT_WISHLIST"))
+  end
+
+  if frame.groupingButton and frame.groupingButton.Text then
+    frame.groupingButton.Text:SetText(getGroupingButtonText())
+    frame.groupingButton:SetWidth(frame.groupingButton.Text:GetStringWidth() + 12)
   end
 
   if frame.topHeaderText then
@@ -602,18 +631,18 @@ local function syncTrackerFrame()
     for _, item in ipairs(group.items) do
       if not item.isBossHeader then
         itemCount = itemCount + 1
-        local uniqueKey = tostring(group.label) .. ":" .. tostring(item.itemID)
+        local uniqueKey = tostring(group.key) .. ":" .. tostring(item.itemID)
         allKeys[uniqueKey] = true
         if not knownRowKeys[uniqueKey] then
           knownRowKeys[uniqueKey] = true
           addedNewItem = true
-          groupAnimations[group.label] = groupAnimations[group.label] or "add"
+          groupAnimations[group.key] = groupAnimations[group.key] or "add"
         end
 
         local previousState = knownItemStates[uniqueKey]
         if previousState and not previousState.showTick and item.showTick then
-          if groupAnimations[group.label] ~= "add" then
-            groupAnimations[group.label] = "complete"
+          if groupAnimations[group.key] ~= "add" then
+            groupAnimations[group.key] = "complete"
           end
         end
 
@@ -623,14 +652,14 @@ local function syncTrackerFrame()
       end
     end
 
-    local collapsed = ns.WishlistStore.isGroupCollapsed(db, charKey, group.label)
+    local collapsed = ns.WishlistStore.isGroupCollapsed(db, charKey, group.mode, group.key)
     local headerRow = ensureRow(frame, rowIndex)
     headerRow:ClearAllPoints()
     headerRow:SetPoint("TOPLEFT", frame.contentFrame or frame, "TOPLEFT", 0, yOffset)
     headerRow:SetPoint("TOPRIGHT", frame.contentFrame or frame, "TOPRIGHT", 0, yOffset)
     renderGroupHeader(headerRow, group, itemCount, collapsed)
-    if groupAnimations[group.label] then
-      playHeaderAnimation(headerRow, groupAnimations[group.label])
+    if groupAnimations[group.key] then
+      playHeaderAnimation(headerRow, groupAnimations[group.key])
     end
     yOffset = yOffset - ROW_HEIGHT
     rowIndex = rowIndex + 1
@@ -759,7 +788,32 @@ function TrackerUI.Initialize(namespace)
 
   trackerFrame.headerText = trackerFrame.headerFrame.Text or trackerFrame.headerFrame.HeaderText
   trackerFrame.headerMinimizeButton = trackerFrame.headerFrame.MinimizeButton
+  trackerFrame.groupingButton = CreateFrame("Button", nil, trackerFrame.headerFrame)
+  trackerFrame.groupingButton:SetHeight(16)
+  trackerFrame.groupingButton.Text = trackerFrame.groupingButton:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  trackerFrame.groupingButton.Text:SetPoint("CENTER")
+  trackerFrame.groupingButton.Text:SetText(getGroupingButtonText())
+  trackerFrame.groupingButton:SetScript("OnClick", function()
+    local nextMode = ns.GetTrackerGroupingMode() == "slot" and "source" or "slot"
+    ns.SetTrackerGroupingMode(nextMode)
+  end)
+  trackerFrame.groupingButton:SetScript("OnEnter", function(self)
+    self.Text:SetFontObject(GameFontNormalSmall)
+  end)
+  trackerFrame.groupingButton:SetScript("OnLeave", function(self)
+    self.Text:SetFontObject(GameFontHighlightSmall)
+  end)
   trackerFrame.contentFrame = CreateFrame("Frame", nil, trackerFrame)
+
+  if trackerFrame.groupingButton and trackerFrame.groupingButton.Text then
+    trackerFrame.groupingButton:SetWidth(trackerFrame.groupingButton.Text:GetStringWidth() + 12)
+    trackerFrame.groupingButton:ClearAllPoints()
+    if trackerFrame.headerMinimizeButton then
+      trackerFrame.groupingButton:SetPoint("RIGHT", trackerFrame.headerMinimizeButton, "LEFT", -HEADER_CONTROL_GAP, 0)
+    else
+      trackerFrame.groupingButton:SetPoint("RIGHT", trackerFrame.headerFrame, "RIGHT", -4, 0)
+    end
+  end
 
   if trackerFrame.topHeader and trackerFrame.topHeader.SetCollapsed and trackerFrame.topHeaderMinimizeButton and
       trackerFrame.topHeaderMinimizeButton.GetNormalTexture and trackerFrame.topHeaderMinimizeButton.GetPushedTexture then
@@ -810,7 +864,9 @@ function TrackerUI.Initialize(namespace)
   trackerFrame.headerButton = CreateFrame("Button", nil, trackerFrame.headerFrame)
   trackerFrame.headerButton:SetPoint("TOPLEFT", trackerFrame.headerFrame, "TOPLEFT", 0, 0)
   trackerFrame.headerButton:SetPoint("BOTTOMLEFT", trackerFrame.headerFrame, "BOTTOMLEFT", 0, 0)
-  if trackerFrame.headerMinimizeButton then
+  if trackerFrame.groupingButton then
+    trackerFrame.headerButton:SetPoint("RIGHT", trackerFrame.groupingButton, "LEFT", -HEADER_CONTROL_GAP, 0)
+  elseif trackerFrame.headerMinimizeButton then
     trackerFrame.headerButton:SetPoint("RIGHT", trackerFrame.headerMinimizeButton, "LEFT", 0, 0)
   else
     trackerFrame.headerButton:SetPoint("TOPRIGHT", trackerFrame.headerFrame, "TOPRIGHT", 0, 0)

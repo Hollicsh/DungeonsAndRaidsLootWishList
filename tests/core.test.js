@@ -13,6 +13,7 @@ async function loadLuaModule(relativePath) {
 
   return {
     module,
+    lua,
     close() {
       lua.global.close()
     },
@@ -20,32 +21,123 @@ async function loadLuaModule(relativePath) {
 }
 
 test('wishlist store persists tracked items and best looted item levels per character', async () => {
-  const { module: store, close } = await loadLuaModule('WishlistStore.lua')
-  const db = {}
+  const factory = new LuaFactory()
+  const lua = await factory.createEngine()
+  const source = fs.readFileSync(path.join(process.cwd(), 'WishlistStore.lua'), 'utf8').replace(/return WishlistStore\s*$/, '')
 
   try {
-    store.ensureCharacter(db, 'Player-Realm')
-    store.setTracked(db, 'Player-Realm', 19019, true)
-    
-    const metadata = { 
-      itemName: 'Thunderfury', 
-      encounterID: 11502, 
-      instanceID: 469 
-    }
-    store.setItemMetadata(db, 'Player-Realm', 19019, metadata)
-    store.updateBestLootedItemLevel(db, 'Player-Realm', 19019, 262)
+    const result = await lua.doString(`${source}
+      local db = {}
+      WishlistStore.setTracked(db, 'Player-Realm', 19019, true)
+      WishlistStore.setItemMetadata(db, 'Player-Realm', 19019, {
+        itemName = 'Thunderfury',
+        encounterID = 11502,
+        instanceID = 469,
+        bossName = 'Nefarian',
+        inventoryType = 'INVTYPE_WEAPON'
+      })
+      WishlistStore.updateBestLootedItemLevel(db, 'Player-Realm', 19019, 262)
+      local items = WishlistStore.getTrackedItems(db, 'Player-Realm')
+      return {
+        tracked = WishlistStore.isTracked(db, 'Player-Realm', 19019),
+        best = WishlistStore.getBestLootedItemLevel(db, 'Player-Realm', 19019),
+        count = #items,
+        encounterID = items[1].encounterID,
+        instanceID = items[1].instanceID,
+        bossName = items[1].bossName,
+        inventoryType = items[1].inventoryType,
+      }
+    `)
 
-    assert.equal(store.isTracked(db, 'Player-Realm', 19019), true)
-    assert.equal(store.getBestLootedItemLevel(db, 'Player-Realm', 19019), 262)
-    
-    const items = db.characters['Player-Realm'].items
-    const entry = items['19019'] || items[19019]
-    assert.ok(entry, 'Entry should exist')
-    assert.equal(entry.tracked, true)
-    assert.equal(entry.encounterID, 11502)
-    assert.equal(entry.instanceID, 469)
+    assert.equal(result.tracked, true)
+    assert.equal(result.best, 262)
+    assert.equal(result.count, 1)
+    assert.equal(result.encounterID, 11502)
+    assert.equal(result.instanceID, 469)
+    assert.equal(result.bossName, 'Nefarian')
+    assert.equal(result.inventoryType, 'INVTYPE_WEAPON')
   } finally {
-    close()
+    lua.global.close()
+  }
+})
+
+test('wishlist store persists grouping mode and collapse state separately per mode', async () => {
+  const factory = new LuaFactory()
+  const lua = await factory.createEngine()
+  const source = fs.readFileSync(path.join(process.cwd(), 'WishlistStore.lua'), 'utf8').replace(/return WishlistStore\s*$/, '')
+
+  try {
+    const result = await lua.doString(`${source}
+      local db = {}
+      local before = WishlistStore.getGroupingMode(db, 'Player-Realm')
+      WishlistStore.setGroupingMode(db, 'Player-Realm', 'slot')
+      WishlistStore.setGroupCollapsed(db, 'Player-Realm', 'source', 'source:instance:469', true)
+      WishlistStore.setGroupCollapsed(db, 'Player-Realm', 'slot', 'slot:INVTYPE_HEAD', true)
+      return {
+        before = before,
+        after = WishlistStore.getGroupingMode(db, 'Player-Realm'),
+        sourceCollapsed = WishlistStore.isGroupCollapsed(db, 'Player-Realm', 'source', 'source:instance:469'),
+        slotCollapsed = WishlistStore.isGroupCollapsed(db, 'Player-Realm', 'slot', 'slot:INVTYPE_HEAD'),
+        sourceHiddenInSlot = WishlistStore.isGroupCollapsed(db, 'Player-Realm', 'slot', 'source:instance:469'),
+      }
+    `)
+
+    assert.equal(result.before, 'source')
+    assert.equal(result.after, 'slot')
+    assert.equal(result.sourceCollapsed, true)
+    assert.equal(result.slotCollapsed, true)
+    assert.equal(result.sourceHiddenInSlot, false)
+  } finally {
+    lua.global.close()
+  }
+})
+
+test('wishlist store repairs missing inventory types and clears non-raid boss names', async () => {
+  const factory = new LuaFactory()
+  const lua = await factory.createEngine()
+  const source = fs.readFileSync(path.join(process.cwd(), 'WishlistStore.lua'), 'utf8').replace(/return WishlistStore\s*$/, '')
+
+  try {
+    const result = await lua.doString(`
+      function GetItemInfoInstant(itemId)
+        return itemId, 'Armor', 'Plate', 'INVTYPE_HEAD'
+      end
+
+      ${source}
+
+      local db = {
+        characters = {
+          ['Player-Realm'] = {
+            items = {
+              ['19019'] = {
+                tracked = true,
+                instanceID = 42,
+                bossName = 'Not A Raid Boss'
+              }
+            }
+          }
+        }
+      }
+
+      local changed = WishlistStore.repairTrackedMetadata(db, 'Player-Realm', {
+        IsRaidInstance = function(instanceID)
+          return false
+        end,
+      })
+
+      local entry = WishlistStore.getTrackedItems(db, 'Player-Realm')[1]
+      return {
+        changed = changed,
+        inventoryType = entry.inventoryType,
+        bossName = entry.bossName,
+      }
+    `)
+
+    assert.equal(result.changed, true)
+    assert.equal(result.inventoryType, 'INVTYPE_HEAD')
+    assert.equal(result.bossName, undefined)
+  } finally {
+    lua.global.close()
   }
 })
 
@@ -56,11 +148,33 @@ test('item resolver collapses higher item level variants to the same wishlist ke
     assert.equal(resolver.getWishlistKey({ itemID: 19019, itemLink: '|Hitem:19019::::::::70:::::|h[Thunderfury]|h' }), 'item:19019')
     assert.equal(resolver.getWishlistKey({ itemID: 19019, itemLink: '|Hitem:19019::::::::70:66::5:5:7982:10355:6652:1507:8767:1:28:1279:::::|h[Thunderfury]|h' }), 'item:19019')
     
-    const normalized = resolver.normalizeItemData({ itemID: 19019, encounterID: 11502, instanceID: 469 })
+    const normalized = resolver.normalizeItemData({ itemID: 19019, encounterID: 11502, instanceID: 469, inventoryType: 'INVTYPE_WEAPON' })
     assert.equal(normalized.encounterID, 11502)
     assert.equal(normalized.instanceID, 469)
+    assert.equal(normalized.inventoryType, 'INVTYPE_WEAPON')
   } finally {
     close()
+  }
+})
+
+test('item resolver falls back to GetItemInfoInstant equip location when metadata lacks inventory type', async () => {
+  const factory = new LuaFactory()
+  const lua = await factory.createEngine()
+  const source = fs.readFileSync(path.join(process.cwd(), 'ItemResolver.lua'), 'utf8').replace(/return ItemResolver\s*$/, '')
+
+  try {
+    const result = await lua.doString(`
+      function GetItemInfoInstant(itemId)
+        return itemId, 'Armor', 'Plate', 'INVTYPE_HEAD'
+      end
+      ${source}
+      local normalized = ItemResolver.normalizeItemData({ itemID = 19019 })
+      return normalized.inventoryType
+    `)
+
+    assert.equal(result, 'INVTYPE_HEAD')
+  } finally {
+    lua.global.close()
   }
 })
 
@@ -70,6 +184,30 @@ test('source resolver groups items by source and falls back to Other', async () 
   try {
     assert.equal(sourceResolver.getGroupLabel({ itemID: 19019, instanceName: 'Blackwing Lair' }), 'Blackwing Lair')
     assert.equal(sourceResolver.getGroupLabel({ itemID: 19019 }), 'Other')
+
+    const sourceGroup = sourceResolver.resolveGroup('source', { instanceID: 469, instanceName: 'Blackwing Lair' }, 'Other')
+    assert.equal(sourceGroup.key, 'source:instance:469')
+    assert.equal(sourceGroup.label, 'Blackwing Lair')
+
+    const slotGroup = sourceResolver.resolveGroup('slot', { inventoryType: 'INVTYPE_HEAD', slotLabel: 'Head' }, 'Other')
+    assert.equal(slotGroup.key, 'slot:head')
+    assert.equal(slotGroup.label, 'Head')
+  } finally {
+    close()
+  }
+})
+
+test('source resolver sends unsupported or non-equippable inventory types to Other in slot mode', async () => {
+  const { module: sourceResolver, close } = await loadLuaModule('SourceResolver.lua')
+
+  try {
+    const nonEquip = sourceResolver.resolveGroup('slot', { inventoryType: 'INVTYPE_NON_EQUIP_IGNORE', slotLabel: 'Ignored' }, 'Other')
+    const unsupported = sourceResolver.resolveGroup('slot', { inventoryType: 'INVTYPE_BAG', slotLabel: 'Bag' }, 'Other')
+
+    assert.equal(nonEquip.key, 'slot:other')
+    assert.equal(nonEquip.label, 'Other')
+    assert.equal(unsupported.key, 'slot:other')
+    assert.equal(unsupported.label, 'Other')
   } finally {
     close()
   }
@@ -91,12 +229,14 @@ test('tracker model groups rows by source and keeps best ilvl separate from poss
 
   try {
     const grouped = trackerModel.buildGroups([
-      { itemID: 1, itemName: 'Stormlash Dagger', groupLabel: 'Operation: Floodgate', isPossessed: false, bestLootedItemLevel: 262 },
-      { itemID: 2, itemName: 'Circuit Breaker', groupLabel: 'Operation: Floodgate', isPossessed: true },
-      { itemID: 3, itemName: 'Unknown Relic', groupLabel: 'Other', isPossessed: false },
-    ])
+      { itemID: 1, itemName: 'Stormlash Dagger', groupKey: 'source:instance:1', groupLabel: 'Operation: Floodgate', isPossessed: false, bestLootedItemLevel: 262 },
+      { itemID: 2, itemName: 'Circuit Breaker', groupKey: 'source:instance:1', groupLabel: 'Operation: Floodgate', isPossessed: true },
+      { itemID: 3, itemName: 'Unknown Relic', groupKey: 'source:other', groupLabel: 'Other', isPossessed: false },
+    ], { groupBy: 'source', otherLabel: 'Other' })
 
     assert.equal(grouped.length, 2)
+    assert.equal(grouped[0].key, 'source:instance:1')
+    assert.equal(grouped[0].mode, 'source')
     assert.equal(grouped[0].label, 'Operation: Floodgate')
     assert.equal(grouped[0].items[0].displayText, 'Stormlash Dagger (262)')
     assert.equal(grouped[0].items[0].showTick, false)
@@ -117,21 +257,25 @@ test('tracker model groups raid items by boss and sorts bosses by bossRank', asy
       { 
         itemID: 2, 
         itemName: 'Circuit Breaker', 
+        groupKey: 'source:instance:1',
         groupLabel: 'Operation: Floodgate', 
         isPossessed: true,
+        isRaidSource: true,
         bossName: 'The Mainframe',
         bossRank: 2 // Second boss
       },
       { 
         itemID: 1, 
         itemName: 'Stormlash Dagger', 
+        groupKey: 'source:instance:1',
         groupLabel: 'Operation: Floodgate', 
         isPossessed: false, 
+        isRaidSource: true,
         bestLootedItemLevel: 262,
         bossName: 'Enforcer Sunder',
         bossRank: 1 // First boss
       },
-    ])
+    ], { groupBy: 'source', otherLabel: 'Other' })
 
     // Group 1: Operation: Floodgate (Raid)
     assert.equal(grouped[0].label, 'Operation: Floodgate')
@@ -162,11 +306,13 @@ test('tracker model keeps dungeon items in a flat list without boss headers', as
       { 
         itemID: 3, 
         itemName: 'Dungeon Blade', 
+        groupKey: 'source:instance:2',
         groupLabel: 'The Deadmines', 
         isPossessed: false,
-        bossName: '' // No boss name provided for dungeon items usually
+        isRaidSource: false,
+        bossName: 'Edwin VanCleef'
       },
-    ])
+    ], { groupBy: 'source', otherLabel: 'Other' })
 
     assert.equal(grouped[0].label, 'The Deadmines')
     assert.equal(grouped[0].items[0].displayText, 'Dungeon Blade')
@@ -181,9 +327,9 @@ test('tracker model keeps the localized fallback group at the end', async () => 
 
   try {
     const grouped = trackerModel.buildGroups([
-      { itemID: 1, itemName: 'Unknown Relic', groupLabel: 'Autre', isPossessed: false },
-      { itemID: 2, itemName: 'Stormlash Dagger', groupLabel: "Zul'Gurub", isPossessed: false },
-    ], 'Autre')
+      { itemID: 1, itemName: 'Unknown Relic', groupKey: 'source:other', groupLabel: 'Autre', isPossessed: false },
+      { itemID: 2, itemName: 'Stormlash Dagger', groupKey: 'source:instance:77', groupLabel: "Zul'Gurub", isPossessed: false },
+    ], { groupBy: 'source', otherLabel: 'Autre' })
 
     assert.equal(grouped[0].label, "Zul'Gurub")
     assert.equal(grouped[1].label, 'Autre')
@@ -192,11 +338,158 @@ test('tracker model keeps the localized fallback group at the end', async () => 
   }
 })
 
+test('tracker model keeps slot mode flat even when boss names are present', async () => {
+  const { module: trackerModel, close } = await loadLuaModule('TrackerModel.lua')
+
+  try {
+    const grouped = trackerModel.buildGroups([
+      {
+        itemID: 1,
+        itemName: 'Crown of Storms',
+        groupKey: 'slot:INVTYPE_HEAD',
+        groupLabel: 'Head',
+        isPossessed: false,
+        isRaidSource: true,
+        bossName: 'Queen Ansurek',
+      },
+    ], { groupBy: 'slot', otherLabel: 'Other' })
+
+    assert.equal(grouped[0].mode, 'slot')
+    assert.equal(grouped[0].items.length, 1)
+    assert.equal(grouped[0].items[0].itemID, 1)
+    assert.equal(grouped[0].items[0].isBossHeader, undefined)
+  } finally {
+    close()
+  }
+})
+
+test('tracker model sorts slot groups in fixed paper-doll order with Other last', async () => {
+  const { module: trackerModel, close } = await loadLuaModule('TrackerModel.lua')
+
+  try {
+    const grouped = trackerModel.buildGroups([
+      { itemID: 1, itemName: 'Ring', groupKey: 'slot:rings', groupLabel: 'Rings', groupSortIndex: 11, isPossessed: false },
+      { itemID: 2, itemName: 'Helmet', groupKey: 'slot:head', groupLabel: 'Head', groupSortIndex: 1, isPossessed: false },
+      { itemID: 3, itemName: 'Offhand', groupKey: 'slot:off_hand', groupLabel: 'Off Hand', groupSortIndex: 15, isPossessed: false },
+      { itemID: 4, itemName: 'Other Item', groupKey: 'slot:other', groupLabel: 'Other', groupSortIndex: 999, isPossessed: false },
+    ], { groupBy: 'slot', otherLabel: 'Other' })
+
+    assert.equal(grouped[0].label, 'Head')
+    assert.equal(grouped[1].label, 'Rings')
+    assert.equal(grouped[2].label, 'Off Hand')
+    assert.equal(grouped[3].label, 'Other')
+  } finally {
+    close()
+  }
+})
+
+test('set tracked from item data works before raid helpers are defined later in file', async () => {
+  const factory = new LuaFactory()
+  const lua = await factory.createEngine()
+  const source = fs.readFileSync(path.join(process.cwd(), 'LootWishList.lua'), 'utf8')
+
+  try {
+    await lua.global.set('sourceText', source)
+    const result = await lua.doString(`
+      local refreshed = 0
+      local trackedItemId = nil
+      local trackedMetadata = nil
+      local primedInstanceId = nil
+      local namespace = {
+        db = {},
+        state = {},
+        ItemResolver = {
+          normalizeItemData = function(itemData)
+            return itemData
+          end,
+          getItemIdFromLink = function() return nil end,
+          getWishlistKey = function(item) return 'item:' .. tostring(item.itemID) end,
+        },
+        WishlistStore = {
+          isTracked = function() return false end,
+          getGroupingMode = function() return 'source' end,
+          getTrackedItems = function() return {} end,
+          getExistingItemEntry = function() return nil end,
+          setTracked = function(_, _, itemID) trackedItemId = itemID end,
+          setItemMetadata = function(_, _, _, metadata) trackedMetadata = metadata end,
+          removeItem = function() end,
+          updateBestLootedItemLevel = function() end,
+          runMigration = function() end,
+          repairTrackedMetadata = function() end,
+        },
+        AdventureGuideUI = { Refresh = function() end, Initialize = function() end },
+        TrackerUI = { Refresh = function() end, Initialize = function() end },
+        LootEvents = { HandleChatLoot = function() end, HandleStartLootRoll = function() end },
+        Locales = { getString = function(_, _, key) return key end },
+      }
+
+      function CreateFrame()
+        return {
+          RegisterEvent = function() end,
+          SetScript = function() end,
+          UnregisterAllEvents = function() end,
+        }
+      end
+      StaticPopupDialogs = {}
+      function UnitName() return 'Player' end
+      function GetRealmName() return 'Realm' end
+      function InCombatLockdown() return false end
+      C_Timer = { After = function(_, callback) if callback then callback() end end }
+      function GetLocale() return 'enUS' end
+      function EJ_GetEncounterInfo() return 'Raid Boss' end
+      function GetItemInfo() return nil end
+      function hooksecurefunc() end
+      SlashCmdList = {}
+      NUM_GROUP_LOOT_FRAMES = 4
+      UIParent = {}
+      function StaticPopup_Show() end
+      function GetDetailedItemLevelInfo() return nil end
+      function GetInventoryItemLink() return nil end
+
+      local addonName = 'LootWishList'
+      local env = setmetatable({ [1] = addonName, [2] = namespace }, { __index = _G })
+      local chunk = assert(load(sourceText, nil, 't', env))
+      chunk(addonName, namespace)
+
+      namespace.PrimeEncounterDataForInstance = function(instanceID)
+        primedInstanceId = instanceID
+      end
+      namespace.RefreshAllImmediate = function()
+        refreshed = refreshed + 1
+      end
+      namespace.GetCurrentSourceLabel = function() return 'Blackwing Lair' end
+
+      namespace.SetTrackedFromItemData({
+        itemID = 19019,
+        itemName = 'Thunderfury',
+        instanceID = 469,
+        encounterID = 11583,
+        inventoryType = 'INVTYPE_WEAPON',
+        instanceName = 'Blackwing Lair',
+      }, true)
+
+      return {
+        trackedItemId = trackedItemId,
+        inventoryType = trackedMetadata and trackedMetadata.inventoryType or nil,
+        primedInstanceId = primedInstanceId,
+        refreshed = refreshed,
+      }
+    `)
+
+    assert.equal(result.trackedItemId, 19019)
+    assert.equal(result.inventoryType, 'INVTYPE_WEAPON')
+    assert.equal(result.primedInstanceId, 469)
+    assert.equal(result.refreshed, 1)
+  } finally {
+    lua.global.close()
+  }
+})
+
 test('localization contains required wishlist keys for all supported locales', async () => {
   const { module: locales, close } = await loadLuaModule('Locales.lua')
 
   try {
-    const requiredKeys = ['LOOT_WISHLIST', 'WISHLIST', 'OTHER', 'PLAYER_LOOTED_WISHLIST_ITEM']
+    const requiredKeys = ['LOOT_WISHLIST', 'WISHLIST', 'OTHER', 'LOOT_SOURCE', 'EQUIPMENT_SLOT', 'DROPS_FROM', 'DROPS_FROM_RAID', 'PLAYER_LOOTED_WISHLIST_ITEM']
     const localeIds = locales.getSupportedLocales()
 
     assert.ok(Array.isArray(localeIds))

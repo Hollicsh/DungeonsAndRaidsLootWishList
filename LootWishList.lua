@@ -80,6 +80,12 @@ local function getTrackedItemEntry(itemID)
   return namespace.WishlistStore.getExistingItemEntry(getCurrentDb(), getCharacterKey(), itemID)
 end
 
+local function getTrackerGroupingMode()
+  return namespace.WishlistStore.getGroupingMode(getCurrentDb(), getCharacterKey())
+end
+
+local isRaidInstance
+
 local function getItemLevel(itemLink)
   if type(GetDetailedItemLevelInfo) == "function" and itemLink then
     return GetDetailedItemLevelInfo(itemLink)
@@ -112,6 +118,16 @@ end
 
 function namespace.IsTrackedItem(itemID)
   return namespace.WishlistStore.isTracked(getCurrentDb(), getCharacterKey(), itemID)
+end
+
+function namespace.GetTrackerGroupingMode()
+  return getTrackerGroupingMode()
+end
+
+function namespace.SetTrackerGroupingMode(groupBy)
+  namespace.WishlistStore.setGroupingMode(getCurrentDb(), getCharacterKey(), groupBy)
+  namespace.RefreshTracker()
+  return getTrackerGroupingMode()
 end
 
 function namespace.RemoveTrackedItem(itemID)
@@ -191,6 +207,11 @@ function namespace.SetTrackedFromItemData(itemData, tracked)
   local characterKey = getCharacterKey()
 
   if tracked then
+    local bossName = nil
+    if normalized.encounterID and normalized.instanceID and isRaidInstance(normalized.instanceID) and type(EJ_GetEncounterInfo) == "function" then
+      bossName = EJ_GetEncounterInfo(normalized.encounterID)
+    end
+
     namespace.WishlistStore.setTracked(db, characterKey, normalized.itemID, true)
     namespace.WishlistStore.setItemMetadata(db, characterKey, normalized.itemID, {
       itemName = normalized.itemName,
@@ -198,6 +219,8 @@ function namespace.SetTrackedFromItemData(itemData, tracked)
       sourceLabel = normalized.instanceName,
       encounterID = normalized.encounterID,
       instanceID = normalized.instanceID,
+      bossName = bossName,
+      inventoryType = normalized.inventoryType,
     })
     if normalized.instanceID then
       namespace.PrimeEncounterDataForInstance(normalized.instanceID)
@@ -263,7 +286,7 @@ function namespace.RefreshPossessionState()
 end
 
 local raidInstances = {}
-local function isRaidInstance(instanceID)
+isRaidInstance = function(instanceID)
   if not instanceID then return false end
   if raidInstances[instanceID] ~= nil then
     return raidInstances[instanceID]
@@ -317,6 +340,10 @@ function namespace.PrimeEncounterDataForInstance(instanceID)
   primeEncounterDataForInstance(instanceID)
 end
 
+function namespace.IsRaidInstance(instanceID)
+  return isRaidInstance(instanceID)
+end
+
 local function primeTrackedEncounterData()
   local trackedItems = namespace.WishlistStore.getTrackedItems(getCurrentDb(), getCharacterKey())
   local primed = {}
@@ -348,16 +375,62 @@ local function resolveBossName(encounterID, instanceID)
   return nil
 end
 
+local function getInventoryTypeLabel(inventoryType)
+  if type(inventoryType) ~= "string" or inventoryType == "" then
+    return namespace.GetText("OTHER")
+  end
+
+  if inventoryType == "INVTYPE_NON_EQUIP_IGNORE" then
+    return namespace.GetText("OTHER")
+  end
+
+  local globalLabel = _G[inventoryType]
+  if type(globalLabel) == "string" and globalLabel ~= "" then
+    return globalLabel
+  end
+
+  return inventoryType
+end
+
+local function buildTooltipFooter(groupingMode, item)
+  if groupingMode ~= "slot" then
+    return nil
+  end
+
+  if type(item.sourceLabel) ~= "string" or item.sourceLabel == "" then
+    return nil
+  end
+
+  if item.bossName and item.bossName ~= "" and isRaidInstance(item.instanceID) then
+    return namespace.GetText("DROPS_FROM_RAID", item.sourceLabel, item.bossName)
+  end
+
+  return namespace.GetText("DROPS_FROM", item.sourceLabel)
+end
+
 function namespace.BuildTrackerGroups()
   local trackedItems = namespace.WishlistStore.getTrackedItems(getCurrentDb(), getCharacterKey())
   local renderItems = {}
   local bestOwnedLinks = namespace.state.bestOwnedLinks or {}
+  local groupingMode = getTrackerGroupingMode()
 
   for _, item in ipairs(trackedItems) do
     local key = namespace.ItemResolver.getWishlistKey({ itemID = item.itemID })
     local itemName = item.itemName or GetItemInfo(item.itemID) or item.itemLink or ("Item " .. tostring(item.itemID))
-    local groupLabel = namespace.SourceResolver.getGroupLabel({
+    local group = namespace.SourceResolver.resolveGroup(groupingMode, {
+      instanceID = item.instanceID,
       instanceName = item.sourceLabel,
+      sourceLabel = item.sourceLabel,
+      inventoryType = item.inventoryType,
+      slotLabel = getInventoryTypeLabel(item.inventoryType),
+    }, namespace.GetText("OTHER"))
+    local sourceLabel = item.sourceLabel
+    local raidSource = isRaidInstance(item.instanceID)
+    local bossName = raidSource and (item.bossName or resolveBossName(item.encounterID, item.instanceID)) or nil
+    local tooltipFooter = buildTooltipFooter(groupingMode, {
+      sourceLabel = sourceLabel,
+      bossName = bossName,
+      instanceID = item.instanceID,
     })
     local bestOwnedLink = bestOwnedLinks[key]
     local tooltipRef = namespace.ItemResolver.getTooltipRef({
@@ -365,14 +438,14 @@ function namespace.BuildTrackerGroups()
       itemID = item.itemID,
     })
     local displayLink = bestOwnedLink or item.itemLink
-
-    local bossName = resolveBossName(item.encounterID, item.instanceID)
     local bossRank = bossName and getEncounterRank(item.encounterID, item.instanceID) or nil
 
     table.insert(renderItems, {
       itemID = item.itemID,
       itemName = itemName,
-      groupLabel = groupLabel,
+      groupKey = group.key,
+      groupLabel = group.label,
+      groupSortIndex = group.sortIndex,
       instanceID = item.instanceID,
       isPossessed = namespace.state.possessed[key] == true,
       bestLootedItemLevel = item.bestLootedItemLevel,
@@ -380,10 +453,17 @@ function namespace.BuildTrackerGroups()
       bossRank = bossRank,
       tooltipRef = tooltipRef,
       displayLink = displayLink,
+      sourceLabel = sourceLabel,
+      inventoryType = item.inventoryType,
+      tooltipFooter = tooltipFooter,
+      isRaidSource = raidSource,
     })
   end
 
-  return namespace.TrackerModel.buildGroups(renderItems, namespace.GetText("OTHER"))
+  return namespace.TrackerModel.buildGroups(renderItems, {
+    groupBy = groupingMode,
+    otherLabel = namespace.GetText("OTHER"),
+  })
 end
 
 local function buildAlertItemLink(record)
@@ -530,6 +610,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
   if event == "PLAYER_LOGIN" then
     namespace.db = getCurrentDb()
     namespace.WishlistStore.runMigration(namespace.db, namespace)
+    namespace.WishlistStore.repairTrackedMetadata(namespace.db, getCharacterKey(), namespace)
     primeTrackedEncounterData()
     namespace.TrackerUI.Initialize(namespace)
     namespace.AdventureGuideUI.Initialize(namespace)
