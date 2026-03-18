@@ -11,6 +11,7 @@ local COLLAPSE_ATLAS = "ui-questtrackerbutton-secondary-collapse"
 local EXPAND_ATLAS = "ui-questtrackerbutton-secondary-expand"
 local HEADER_HEIGHT = 26
 local ROW_HEIGHT = 16
+local GROUP_SPACING = 5
 local DEFAULT_WIDTH = 260
 local TRACKER_SECTION_GAP = -10
 local WISHLIST_HEADER_TOP_PADDING = 10
@@ -626,7 +627,7 @@ local function syncTrackerFrame()
   local db = LootWishListDB
   local charKey = getCharacterKey()
 
-  for _, group in ipairs(currentGroups) do
+  for groupIndex, group in ipairs(currentGroups) do
     local itemCount = 0
     for _, item in ipairs(group.items) do
       if not item.isBossHeader then
@@ -675,6 +676,10 @@ local function syncTrackerFrame()
         yOffset = yOffset - ROW_HEIGHT
         rowIndex = rowIndex + 1
       end
+    end
+
+    if groupIndex < #currentGroups then
+      yOffset = yOffset - GROUP_SPACING
     end
   end
 

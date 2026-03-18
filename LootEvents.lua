@@ -69,28 +69,57 @@ local function getLootPatterns()
   return EVENT_PATTERNS
 end
 
+local function safeExtractLootInfo(message)
+  local ok, playerMatch, itemLink = pcall(function()
+    local matchedPlayer, matchedItemLink
+
+    for _, pattern in ipairs(getLootPatterns()) do
+      local match1, match2 = string.match(message, pattern)
+      if match1 then
+        if string.find(match1, "|Hitem:", 1, true) then
+          matchedItemLink = match1
+          matchedPlayer = match2
+        elseif match2 and string.find(match2, "|Hitem:", 1, true) then
+          matchedItemLink = match2
+          matchedPlayer = match1
+        end
+
+        if matchedItemLink then
+          break
+        end
+      end
+    end
+
+    return matchedPlayer, matchedItemLink
+  end)
+
+  if not ok then
+    return nil, nil
+  end
+
+  return playerMatch, itemLink
+end
+
+local function safeAmbiguatePlayerName(playerName)
+  if type(playerName) ~= "string" or playerName == "" then
+    return nil
+  end
+
+  local ok, shortName = pcall(Ambiguate, playerName, "short")
+  if not ok then
+    return nil
+  end
+
+  return shortName
+end
+
 function LootEvents.HandleChatLoot(namespace, message, playerNameEvent)
   -- Process immediately to avoid accessing tainted message later
   if type(message) ~= "string" then
     return
   end
 
-  local playerMatch, itemLink
-  for _, pattern in ipairs(getLootPatterns()) do
-    local match1, match2 = string.match(message, pattern)
-    if match1 then
-      if string.find(match1, "|Hitem:", 1, true) then
-        itemLink = match1
-        playerMatch = match2
-      elseif match2 and string.find(match2, "|Hitem:", 1, true) then
-        itemLink = match2
-        playerMatch = match1
-      end
-      if itemLink then
-        break
-      end
-    end
-  end
+  local playerMatch, itemLink = safeExtractLootInfo(message)
 
   if not itemLink then
     return
@@ -102,7 +131,7 @@ function LootEvents.HandleChatLoot(namespace, message, playerNameEvent)
   end
 
   local player = (playerMatch and playerMatch ~= "") and playerMatch or playerNameEvent
-  player = player and Ambiguate(player, "short") or nil
+  player = safeAmbiguatePlayerName(player)
   local selfName = UnitName("player")
 
   if player and selfName and player == selfName then
