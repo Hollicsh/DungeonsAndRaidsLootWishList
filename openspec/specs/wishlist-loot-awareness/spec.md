@@ -25,7 +25,7 @@ When the active character loots a tracked item, the addon SHALL update the remem
 
 ### Requirement: Other-player tracked-item loot shows an alert without changing local ownership state
 
-When another player loots an item that matches the active character's tracked wishlist, the addon SHALL normalize the relevant alert data immediately into addon-owned values and SHALL show an interactive item alert dialog identifying the looting player and the item when the UI is in a safe state for dialog display. If the UI is already in a safe state, the alert MAY appear immediately. The addon SHALL NOT change the active character's possession indicator or remembered best looted item level based on another player's loot. Loot-event handling SHALL NOT depend on later unsafe indexing of secret or taint-sensitive raw event payloads.
+When another player loots an item that matches the active character's tracked wishlist, the addon SHALL normalize the relevant alert data immediately into addon-owned values and SHALL show an interactive item alert dialog identifying the looting player and the item when the UI is in a safe state for dialog display. If the UI is already in a safe state, the alert MAY appear immediately. The addon SHALL NOT change the active character's possession indicator or remembered best looted item level based on another player's loot. Loot-event handling SHALL process incoming loot payloads immediately at the event boundary rather than storing or replaying raw payloads later, and SHALL NOT treat generic error suppression around unsafe payload parsing as an acceptable success path.
 
 #### Scenario: Another player loots a tracked item while UI state is safe
 
@@ -42,11 +42,17 @@ When another player loots an item that matches the active character's tracked wi
 - **WHEN** another player loots an item that matches one of the active character's tracked wishlist items
 - **THEN** the addon does not change the active character's stored best looted item level or possession-derived green tick
 
-#### Scenario: Loot-event processing does not fail on taint-sensitive payloads
+#### Scenario: Loot-event processing normalizes data immediately
 
-- **WHEN** the relevant loot event arrives in a taint-sensitive form such as a secret loot-message payload
-- **THEN** the addon avoids unsafe direct indexing of that raw payload
-- **AND** continues to preserve stable tracker and tooltip behavior elsewhere in the UI
+- **WHEN** the relevant loot event arrives for another player's tracked item loot
+- **THEN** the addon derives the minimum item and player data immediately at the event boundary
+- **AND** later alert queuing and display consume only the normalized addon-owned alert record
+
+#### Scenario: Unsafe payload does not become a hidden successful alert path
+
+- **WHEN** the relevant loot event cannot be safely normalized into addon-owned values
+- **THEN** the addon does not queue or show a tracked-loot alert from that unsafe payload
+- **AND** the addon does not treat generic error suppression around unsafe parsing as a successful tracked-loot detection path
 
 ### Requirement: Loot roll frames are tagged for tracked items
 

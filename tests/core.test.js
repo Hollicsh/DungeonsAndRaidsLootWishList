@@ -558,3 +558,112 @@ test('item resolver getTooltipRef falls back to stable item identity when no lin
     close()
   }
 })
+
+test('loot events queue a normalized alert record for tracked chat loot outside combat', async () => {
+  const factory = new LuaFactory()
+  const lua = await factory.createEngine()
+  const source = fs.readFileSync(path.join(process.cwd(), 'LootEvents.lua'), 'utf8')
+    .replace(/local _, namespace = \.\.\.[\s\S]*$/, '')
+
+  try {
+    const result = await lua.doString(`
+      LOOT_ITEM = "%s receives loot: %s."
+      function InCombatLockdown()
+        return false
+      end
+      function UnitName(unit)
+        return "Player"
+      end
+      function Ambiguate(name, style)
+        return name
+      end
+
+      ${source}
+
+      local queued = nil
+      local namespace = {
+        ItemResolver = {
+          getItemIdFromLink = function(link)
+            if type(link) == "string" and string.find(link, "item:19019", 1, true) then
+              return 19019
+            end
+            return nil
+          end,
+        },
+        IsTrackedItem = function(itemID)
+          return itemID == 19019
+        end,
+        BuildLootAlertRecord = function(itemID, playerName)
+          return { itemID = itemID, playerName = playerName }
+        end,
+        QueueLootAlert = function(record)
+          queued = record
+        end,
+      }
+
+      LootEvents.HandleChatLoot(namespace, "Teammate receives loot: |Hitem:19019::::::::70:::::|h[Thunderfury]|h.", "Teammate")
+
+      return {
+        itemID = queued and queued.itemID,
+        playerName = queued and queued.playerName,
+      }
+    `)
+
+    assert.equal(result.itemID, 19019)
+    assert.equal(result.playerName, 'Teammate')
+  } finally {
+    lua.global.close()
+  }
+})
+
+test('loot events still queue a normalized alert record during combat', async () => {
+  const factory = new LuaFactory()
+  const lua = await factory.createEngine()
+  const source = fs.readFileSync(path.join(process.cwd(), 'LootEvents.lua'), 'utf8')
+    .replace(/local _, namespace = \.\.\.[\s\S]*$/, '')
+
+  try {
+    const result = await lua.doString(`
+      LOOT_ITEM = "%s receives loot: %s."
+      function InCombatLockdown() return true end
+      function UnitName(unit)
+        return "Player"
+      end
+      function Ambiguate(name, style)
+        return name
+      end
+
+      ${source}
+
+      local queued = nil
+      local namespace = {
+        ItemResolver = {
+          getItemIdFromLink = function(link)
+            return 19019
+          end,
+        },
+        IsTrackedItem = function(itemID)
+          return true
+        end,
+        BuildLootAlertRecord = function(itemID, playerName)
+          return { itemID = itemID, playerName = playerName }
+        end,
+        QueueLootAlert = function(record)
+          queued = record
+        end,
+      }
+
+      LootEvents.HandleChatLoot(namespace, "Teammate receives loot: |Hitem:19019::::::::70:::::|h[Thunderfury]|h.", "Teammate")
+
+      return {
+        itemID = queued and queued.itemID,
+        playerName = queued and queued.playerName,
+      }
+    `)
+
+    assert.equal(result.itemID, 19019)
+    assert.equal(result.playerName, 'Teammate')
+  } finally {
+    lua.global.close()
+  }
+})

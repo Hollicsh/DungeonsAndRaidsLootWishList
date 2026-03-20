@@ -3,11 +3,11 @@ local TrackerUI = {}
 local trackerFrame = nil
 local trackerTooltip = CreateFrame("GameTooltip", "LootWishListTrackerTooltip", UIParent, "GameTooltipTemplate")
 local trackerContextMenu = nil
-local trackerContextMenuItems = nil
 local currentGroups = {}
 local knownRowKeys = {}
 local knownItemStates = {}
 local ns = nil
+local syncTrackerFrame = nil
 
 local COLLAPSE_ATLAS = "ui-questtrackerbutton-secondary-collapse"
 local EXPAND_ATLAS = "ui-questtrackerbutton-secondary-expand"
@@ -23,6 +23,10 @@ local HEADER_CONTROL_GAP = 6
 local STANDALONE_HEADER_OFFSET_Y = -3
 local FRAME_LEFT_PADDING = 10
 local STANDALONE_HEADER_BOTTOM_MARGIN = 10
+local CONTEXT_MENU_WIDTH = 120
+local CONTEXT_MENU_ROW_HEIGHT = 20
+local CONTEXT_MENU_PADDING_X = 8
+local CONTEXT_MENU_PADDING_Y = 4
 
 local function playAddAnimation(frame)
   if frame and frame.headerFrame and frame.headerFrame.AddAnim and frame.headerFrame.AddAnim.Restart then
@@ -195,6 +199,32 @@ local function applyStandaloneHeaderButtonState(frame)
   if pushedAtlas then
     button:SetPushedAtlas(pushedAtlas)
   end
+end
+
+local function playMenuCheckboxSound()
+  if type(PlaySound) ~= "function" or type(SOUNDKIT) ~= "table" then
+    return
+  end
+
+  if SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON then
+    PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+  end
+end
+
+local function isDescendantOf(frame, ancestor)
+  while frame do
+    if frame == ancestor then
+      return true
+    end
+
+    if type(frame.GetParent) ~= "function" then
+      break
+    end
+
+    frame = frame:GetParent()
+  end
+
+  return false
 end
 
 local function getBottommostVisibleChild(parent)
@@ -375,57 +405,120 @@ local function ensureTrackerContextMenu()
     return trackerContextMenu
   end
 
-  trackerContextMenu = CreateFrame("Frame", "LootWishListTrackerContextMenu", UIParent, "UIDropDownMenuTemplate")
-  trackerContextMenu.displayMode = "MENU"
+  local template = BackdropTemplateMixin and "BackdropTemplate" or nil
+  trackerContextMenu = CreateFrame("Frame", "LootWishListTrackerContextMenu", UIParent, template)
   trackerContextMenu:SetToplevel(true)
   trackerContextMenu:SetFrameStrata("TOOLTIP")
-  trackerContextMenuItems = {
-    {
-      text = "",
-      colorCode = "|cffffffff",
-      fontObject = "GameFontNormal",
-      notCheckable = true,
-      func = nil,
-    },
-  }
-  return trackerContextMenu
-end
+  trackerContextMenu:SetClampedToScreen(true)
+  trackerContextMenu:EnableMouse(true)
+  trackerContextMenu:SetSize(CONTEXT_MENU_WIDTH, CONTEXT_MENU_ROW_HEIGHT + (CONTEXT_MENU_PADDING_Y * 2))
 
-local function openTrackerEasyMenu(menuList, menuFrame, anchor, x, y, displayMode, autoHideDelay)
-  if type(EasyMenu) == "function" then
-    EasyMenu(menuList, menuFrame, anchor, x, y, displayMode, autoHideDelay)
-    return
+  if type(UISpecialFrames) == "table" then
+    local alreadyRegistered = false
+    for _, frameName in ipairs(UISpecialFrames) do
+      if frameName == "LootWishListTrackerContextMenu" then
+        alreadyRegistered = true
+        break
+      end
+    end
+    if not alreadyRegistered then
+      table.insert(UISpecialFrames, "LootWishListTrackerContextMenu")
+    end
   end
 
-  if displayMode == "MENU" then
-    menuFrame.displayMode = displayMode
+  if trackerContextMenu.SetBackdrop then
+    trackerContextMenu:SetBackdrop({
+      bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+      edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+      tile = true,
+      tileSize = 16,
+      edgeSize = 12,
+      insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    trackerContextMenu:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
+    trackerContextMenu:SetBackdropBorderColor(0.65, 0.65, 0.65, 1)
   end
 
-  if type(UIDropDownMenu_Initialize) ~= "function" or type(ToggleDropDownMenu) ~= "function" then
-    return
-  end
+  trackerContextMenu.actionButton = CreateFrame("Button", nil, trackerContextMenu)
+  trackerContextMenu.actionButton:SetPoint("TOPLEFT", trackerContextMenu, "TOPLEFT", CONTEXT_MENU_PADDING_X, -CONTEXT_MENU_PADDING_Y)
+  trackerContextMenu.actionButton:SetPoint("TOPRIGHT", trackerContextMenu, "TOPRIGHT", -CONTEXT_MENU_PADDING_X, -CONTEXT_MENU_PADDING_Y)
+  trackerContextMenu.actionButton:SetHeight(CONTEXT_MENU_ROW_HEIGHT)
+  trackerContextMenu.actionButton:RegisterForClicks("LeftButtonUp")
 
-  UIDropDownMenu_Initialize(menuFrame, function(_, level, list)
-    list = list or menuList
-    if level ~= 1 or type(list) ~= "table" then
+  trackerContextMenu.actionButton.highlight = trackerContextMenu.actionButton:CreateTexture(nil, "BACKGROUND")
+  trackerContextMenu.actionButton.highlight:SetAllPoints()
+  trackerContextMenu.actionButton.highlight:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+  trackerContextMenu.actionButton.highlight:SetBlendMode("ADD")
+  trackerContextMenu.actionButton.highlight:Hide()
+
+  trackerContextMenu.actionButton.text = trackerContextMenu.actionButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  trackerContextMenu.actionButton.text:SetPoint("LEFT", trackerContextMenu.actionButton, "LEFT", 6, 0)
+  trackerContextMenu.actionButton.text:SetPoint("RIGHT", trackerContextMenu.actionButton, "RIGHT", -6, 0)
+  trackerContextMenu.actionButton.text:SetJustifyH("LEFT")
+  trackerContextMenu.actionButton.text:SetWordWrap(false)
+  trackerContextMenu.actionButton.text:SetTextColor(1, 1, 1)
+  trackerContextMenu.actionButton.text:SetText(ns.GetText("REMOVE"))
+
+  trackerContextMenu.actionButton:SetScript("OnEnter", function(self)
+    self.highlight:Show()
+  end)
+  trackerContextMenu.actionButton:SetScript("OnLeave", function(self)
+    self.highlight:Hide()
+  end)
+  trackerContextMenu.actionButton:SetScript("OnClick", function()
+    local itemID = trackerContextMenu and trackerContextMenu.activeItemID or nil
+    playMenuCheckboxSound()
+    if trackerContextMenu then
+      trackerContextMenu:Hide()
+    end
+    if itemID then
+      ns.RemoveTrackedItem(itemID)
+    end
+  end)
+
+  trackerContextMenu:SetScript("OnShow", function(self)
+    self.mouseWasDown = false
+    self.pendingOutsideDismiss = false
+  end)
+  trackerContextMenu:SetScript("OnHide", function(self)
+    self.activeOwner = nil
+    self.activeItemID = nil
+    self.mouseWasDown = false
+    self.pendingOutsideDismiss = false
+    self.actionButton.highlight:Hide()
+  end)
+  trackerContextMenu:SetScript("OnUpdate", function(self)
+    if self.activeOwner and not self.activeOwner:IsShown() then
+      self:Hide()
       return
     end
 
-    for index = 1, #list do
-      local value = list[index]
-      if value and value.text then
-        value.index = index
-        UIDropDownMenu_AddButton(value, level)
-      end
+    if type(IsMouseButtonDown) ~= "function" then
+      return
     end
-  end, displayMode, nil, menuList)
 
-  ToggleDropDownMenu(1, nil, menuFrame, anchor, x, y, menuList, nil, autoHideDelay, displayMode)
+    local isDown = IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton")
+    if isDown and not self.mouseWasDown then
+      self.mouseWasDown = true
+      local focus = type(GetMouseFocus) == "function" and GetMouseFocus() or nil
+      self.pendingOutsideDismiss = not isDescendantOf(focus, self)
+    elseif not isDown and self.mouseWasDown then
+      self.mouseWasDown = false
+      if self.pendingOutsideDismiss then
+        self:Hide()
+        return
+      end
+    elseif not isDown then
+      self.pendingOutsideDismiss = false
+    end
+  end)
+
+  return trackerContextMenu
 end
 
 local function closeTrackerContextMenu()
-  if type(CloseDropDownMenus) == "function" then
-    CloseDropDownMenus()
+  if trackerContextMenu then
+    trackerContextMenu:Hide()
   end
 end
 
@@ -436,44 +529,25 @@ local function showTrackerContextMenu(row)
 
   local itemID = row.itemID
 
-  if MenuUtil and type(MenuUtil.CreateContextMenu) == "function" then
-    hideTrackerTooltip()
-    MenuUtil.CreateContextMenu(row, function(_, rootDescription)
-      rootDescription:CreateButton(ns.GetText("REMOVE"), function()
-        ns.RemoveTrackedItem(itemID)
-        if MenuResponse and MenuResponse.CloseAll then
-          return MenuResponse.CloseAll
-        end
-      end)
-    end)
-    return
-  end
-
   local menu = ensureTrackerContextMenu()
   if not menu then
     return
   end
 
-  local function openMenu()
-    if not row or not row:IsShown() then
-      return
-    end
-
-    trackerContextMenuItems[1].text = ns.GetText("REMOVE")
-    trackerContextMenuItems[1].func = function()
-      closeTrackerContextMenu()
-      ns.RemoveTrackedItem(itemID)
-    end
-    openTrackerEasyMenu(trackerContextMenuItems, menu, "cursor", 0, 0, "MENU", 2)
-  end
-
   hideTrackerTooltip()
   closeTrackerContextMenu()
-  if C_Timer and C_Timer.After then
-    C_Timer.After(0, openMenu)
-  else
-    openMenu()
-  end
+  menu.activeOwner = row
+  menu.activeItemID = itemID
+  menu.actionButton.text:SetText(ns.GetText("REMOVE"))
+  menu:SetWidth(math.max(CONTEXT_MENU_WIDTH, menu.actionButton.text:GetStringWidth() + (CONTEXT_MENU_PADDING_X * 2) + 24))
+  menu:SetHeight(CONTEXT_MENU_ROW_HEIGHT + (CONTEXT_MENU_PADDING_Y * 2))
+
+  local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+  local cursorX, cursorY = GetCursorPosition()
+  menu:ClearAllPoints()
+  menu:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", (cursorX / scale) + 2, (cursorY / scale) - 2)
+  menu:Show()
+  playMenuCheckboxSound()
 end
 
 local function getHeaderTextAnchor(frame)
@@ -523,6 +597,32 @@ local function setStandaloneCollapse(frame, collapsed)
   applyStandaloneHeaderButtonState(frame)
 end
 
+local function toggleWishlistCollapse(frame)
+  if not frame then
+    return
+  end
+
+  local previousState = frame.lootWishlistCollapsed == true
+  setWishlistCollapse(frame, not previousState)
+  if previousState ~= frame.lootWishlistCollapsed then
+    playMenuCheckboxSound()
+  end
+  syncTrackerFrame()
+end
+
+local function toggleStandaloneCollapse(frame)
+  if not frame then
+    return
+  end
+
+  local previousState = frame.lootWishlistStandaloneHidden == true
+  setStandaloneCollapse(frame, not previousState)
+  if previousState ~= frame.lootWishlistStandaloneHidden then
+    playMenuCheckboxSound()
+  end
+  syncTrackerFrame()
+end
+
 local function renderGroupHeader(row, group, itemCount, collapsed)
   local headerInset = getHeaderTextInset(trackerFrame)
   row:RegisterForClicks("LeftButtonUp")
@@ -559,7 +659,13 @@ local function renderGroupHeader(row, group, itemCount, collapsed)
   row:SetScript("OnEnter", nil)
   row:SetScript("OnLeave", nil)
   row.collapseButton:SetScript("OnClick", function()
+    local charKey = getCharacterKey()
+    local previousState = ns.WishlistStore.isGroupCollapsed(LootWishListDB, charKey, group.mode, group.key)
     ns.WishlistStore.toggleGroupCollapse(LootWishListDB, getCharacterKey(), group.mode, group.key)
+    local currentState = ns.WishlistStore.isGroupCollapsed(LootWishListDB, charKey, group.mode, group.key)
+    if previousState ~= currentState then
+      playMenuCheckboxSound()
+    end
     TrackerUI.Refresh(ns, currentGroups)
   end)
 
@@ -651,13 +757,14 @@ local function renderItemRow(row, item)
   row:Show()
 end
 
-local function syncTrackerFrame()
+syncTrackerFrame = function()
   local frame = trackerFrame
   if not frame then
     return
   end
 
   hideTrackerTooltip()
+  closeTrackerContextMenu()
 
   if not currentGroups or #currentGroups == 0 then
     frame:Hide()
@@ -976,14 +1083,12 @@ function TrackerUI.Initialize(namespace)
   end
   trackerFrame.topHeaderButton:RegisterForClicks("LeftButtonUp")
   trackerFrame.topHeaderButton:SetScript("OnClick", function()
-    setStandaloneCollapse(trackerFrame, not trackerFrame.lootWishlistStandaloneHidden)
-    syncTrackerFrame()
+    toggleStandaloneCollapse(trackerFrame)
   end)
 
   if trackerFrame.topHeaderMinimizeButton then
     trackerFrame.topHeaderMinimizeButton:SetScript("OnClick", function()
-      setStandaloneCollapse(trackerFrame, not trackerFrame.lootWishlistStandaloneHidden)
-      syncTrackerFrame()
+      toggleStandaloneCollapse(trackerFrame)
     end)
   end
 
@@ -1000,14 +1105,12 @@ function TrackerUI.Initialize(namespace)
   end
   trackerFrame.headerButton:RegisterForClicks("LeftButtonUp")
   trackerFrame.headerButton:SetScript("OnClick", function()
-    setWishlistCollapse(trackerFrame, not trackerFrame.lootWishlistCollapsed)
-    syncTrackerFrame()
+    toggleWishlistCollapse(trackerFrame)
   end)
 
   if trackerFrame.headerMinimizeButton then
     trackerFrame.headerMinimizeButton:SetScript("OnClick", function()
-      setWishlistCollapse(trackerFrame, not trackerFrame.lootWishlistCollapsed)
-      syncTrackerFrame()
+      toggleWishlistCollapse(trackerFrame)
     end)
     applyCollapseButtonState(trackerFrame.headerMinimizeButton, false)
   end

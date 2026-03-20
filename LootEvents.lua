@@ -117,57 +117,44 @@ local function getLootPatterns()
   return EVENT_PATTERNS
 end
 
-local function safeExtractLootInfo(message)
-  local ok, playerMatch, itemLink = pcall(function()
-    local matchedPlayer, matchedItemLink
-
-    for _, pattern in ipairs(getLootPatterns()) do
-      local match1, match2 = string.match(message, pattern)
-      if match1 then
-        if string.find(match1, "|Hitem:", 1, true) then
-          matchedItemLink = match1
-          matchedPlayer = match2
-        elseif match2 and string.find(match2, "|Hitem:", 1, true) then
-          matchedItemLink = match2
-          matchedPlayer = match1
-        end
-
-        if matchedItemLink then
-          break
-        end
-      end
-    end
-
-    return matchedPlayer, matchedItemLink
-  end)
-
-  if not ok then
-    return nil, nil
+local function extractItemLinkFromLootMessage(message)
+  if type(message) ~= "string" or message == "" then
+    return nil
   end
 
-  return playerMatch, itemLink
+  for _, pattern in ipairs(getLootPatterns()) do
+    local match1, match2 = string.match(message, pattern)
+    if type(match1) == "string" and string.find(match1, "|Hitem:", 1, true) then
+      return match1
+    end
+    if type(match2) == "string" and string.find(match2, "|Hitem:", 1, true) then
+      return match2
+    end
+  end
+
+  return nil
 end
 
-local function safeAmbiguatePlayerName(playerName)
+local function ambiguatePlayerName(playerName)
   if type(playerName) ~= "string" or playerName == "" then
     return nil
   end
 
-  local ok, shortName = pcall(Ambiguate, playerName, "short")
-  if not ok then
-    return nil
+  if type(Ambiguate) == "function" then
+    return Ambiguate(playerName, "short")
   end
 
-  return shortName
+  return playerName
 end
 
 function LootEvents.HandleChatLoot(namespace, message, playerNameEvent)
-  -- Process immediately to avoid accessing tainted message later
-  if type(message) ~= "string" then
+  local player = ambiguatePlayerName(playerNameEvent)
+  local selfName = UnitName("player")
+  if not player or (selfName and player == selfName) then
     return
   end
 
-  local playerMatch, itemLink = safeExtractLootInfo(message)
+  local itemLink = extractItemLinkFromLootMessage(message)
 
   if not itemLink then
     return
@@ -175,14 +162,6 @@ function LootEvents.HandleChatLoot(namespace, message, playerNameEvent)
 
   local itemID = namespace.ItemResolver.getItemIdFromLink(itemLink)
   if not itemID or not namespace.IsTrackedItem(itemID) then
-    return
-  end
-
-  local player = (playerMatch and playerMatch ~= "") and playerMatch or playerNameEvent
-  player = safeAmbiguatePlayerName(player)
-  local selfName = UnitName("player")
-
-  if player and selfName and player == selfName then
     return
   end
 
