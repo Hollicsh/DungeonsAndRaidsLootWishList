@@ -489,7 +489,7 @@ test('localization contains required wishlist keys for all supported locales', a
   const { module: locales, close } = await loadLuaModule('Locales.lua')
 
   try {
-    const requiredKeys = ['LOOT_WISHLIST', 'WISHLIST', 'OTHER', 'LOOT_SOURCE', 'EQUIPMENT_SLOT', 'DROPS_FROM', 'DROPS_FROM_RAID', 'PLAYER_LOOTED_WISHLIST_ITEM']
+    const requiredKeys = ['LOOT_WISHLIST', 'WISHLIST', 'REMOVE', 'OTHER', 'LOOT_SOURCE', 'EQUIPMENT_SLOT', 'DROPS_FROM', 'DROPS_FROM_RAID', 'PLAYER_LOOTED_WISHLIST_ITEM']
     const localeIds = locales.getSupportedLocales()
 
     assert.ok(Array.isArray(localeIds))

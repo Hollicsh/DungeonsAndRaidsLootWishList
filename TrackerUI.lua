@@ -2,6 +2,8 @@ local TrackerUI = {}
 
 local trackerFrame = nil
 local trackerTooltip = CreateFrame("GameTooltip", "LootWishListTrackerTooltip", UIParent, "GameTooltipTemplate")
+local trackerContextMenu = nil
+local trackerContextMenuItems = nil
 local currentGroups = {}
 local knownRowKeys = {}
 local knownItemStates = {}
@@ -267,6 +269,7 @@ local function ensureRow(frame, index)
   local parent = frame.contentFrame or frame
   row = CreateFrame("Button", nil, parent)
   row:SetHeight(ROW_HEIGHT)
+  row:EnableMouse(true)
   row:RegisterForClicks("LeftButtonUp")
 
   row.tick = row:CreateTexture(nil, "ARTWORK")
@@ -307,6 +310,7 @@ local function hideUnusedRows(frame, firstUnusedIndex)
     end
     row:Hide()
     row:SetScript("OnClick", nil)
+    row:SetScript("OnMouseUp", nil)
     row:SetScript("OnEnter", nil)
     row:SetScript("OnLeave", nil)
     row.collapseButton:SetScript("OnClick", nil)
@@ -366,6 +370,112 @@ local function hideTrackerTooltip()
   trackerTooltip:Hide()
 end
 
+local function ensureTrackerContextMenu()
+  if trackerContextMenu then
+    return trackerContextMenu
+  end
+
+  trackerContextMenu = CreateFrame("Frame", "LootWishListTrackerContextMenu", UIParent, "UIDropDownMenuTemplate")
+  trackerContextMenu.displayMode = "MENU"
+  trackerContextMenu:SetToplevel(true)
+  trackerContextMenu:SetFrameStrata("TOOLTIP")
+  trackerContextMenuItems = {
+    {
+      text = "",
+      colorCode = "|cffffffff",
+      fontObject = "GameFontNormal",
+      notCheckable = true,
+      func = nil,
+    },
+  }
+  return trackerContextMenu
+end
+
+local function openTrackerEasyMenu(menuList, menuFrame, anchor, x, y, displayMode, autoHideDelay)
+  if type(EasyMenu) == "function" then
+    EasyMenu(menuList, menuFrame, anchor, x, y, displayMode, autoHideDelay)
+    return
+  end
+
+  if displayMode == "MENU" then
+    menuFrame.displayMode = displayMode
+  end
+
+  if type(UIDropDownMenu_Initialize) ~= "function" or type(ToggleDropDownMenu) ~= "function" then
+    return
+  end
+
+  UIDropDownMenu_Initialize(menuFrame, function(_, level, list)
+    list = list or menuList
+    if level ~= 1 or type(list) ~= "table" then
+      return
+    end
+
+    for index = 1, #list do
+      local value = list[index]
+      if value and value.text then
+        value.index = index
+        UIDropDownMenu_AddButton(value, level)
+      end
+    end
+  end, displayMode, nil, menuList)
+
+  ToggleDropDownMenu(1, nil, menuFrame, anchor, x, y, menuList, nil, autoHideDelay, displayMode)
+end
+
+local function closeTrackerContextMenu()
+  if type(CloseDropDownMenus) == "function" then
+    CloseDropDownMenus()
+  end
+end
+
+local function showTrackerContextMenu(row)
+  if not row or row.isBossHeader or not row.itemID then
+    return
+  end
+
+  local itemID = row.itemID
+
+  if MenuUtil and type(MenuUtil.CreateContextMenu) == "function" then
+    hideTrackerTooltip()
+    MenuUtil.CreateContextMenu(row, function(_, rootDescription)
+      rootDescription:CreateButton(ns.GetText("REMOVE"), function()
+        ns.RemoveTrackedItem(itemID)
+        if MenuResponse and MenuResponse.CloseAll then
+          return MenuResponse.CloseAll
+        end
+      end)
+    end)
+    return
+  end
+
+  local menu = ensureTrackerContextMenu()
+  if not menu then
+    return
+  end
+
+  local function openMenu()
+    if not row or not row:IsShown() then
+      return
+    end
+
+    trackerContextMenuItems[1].text = ns.GetText("REMOVE")
+    trackerContextMenuItems[1].func = function()
+      closeTrackerContextMenu()
+      ns.RemoveTrackedItem(itemID)
+    end
+    openTrackerEasyMenu(trackerContextMenuItems, menu, "cursor", 0, 0, "MENU", 2)
+  end
+
+  hideTrackerTooltip()
+  closeTrackerContextMenu()
+  if C_Timer and C_Timer.After then
+    C_Timer.After(0, openMenu)
+  else
+    openMenu()
+  end
+end
+
 local function getHeaderTextAnchor(frame)
   return frame and (frame.headerText or (frame.headerFrame and (frame.headerFrame.Text or frame.headerFrame.HeaderText))) or
       nil
@@ -415,6 +525,7 @@ end
 
 local function renderGroupHeader(row, group, itemCount, collapsed)
   local headerInset = getHeaderTextInset(trackerFrame)
+  row:RegisterForClicks("LeftButtonUp")
   row.tick:Hide()
   row.dash:Hide()
   row.collapseButton:Show()
@@ -444,6 +555,7 @@ local function renderGroupHeader(row, group, itemCount, collapsed)
   row.tooltipFooter = nil
 
   row:SetScript("OnClick", nil)
+  row:SetScript("OnMouseUp", nil)
   row:SetScript("OnEnter", nil)
   row:SetScript("OnLeave", nil)
   row.collapseButton:SetScript("OnClick", function()
@@ -460,11 +572,13 @@ local function renderItemRow(row, item)
   row.collapseButton:Hide()
   row.collapseButton:SetScript("OnClick", nil)
   row:SetScript("OnClick", nil)
+  row:SetScript("OnMouseUp", nil)
 
   row.text:ClearAllPoints()
   row.text:SetPoint("RIGHT", row, "RIGHT", -4, 0)
 
   if item.isBossHeader then
+    row:RegisterForClicks("LeftButtonUp")
     row.tick:Hide()
     row.dash:Hide()
     row.text:SetPoint("LEFT", row, "LEFT", headerInset, 0)
@@ -476,7 +590,9 @@ local function renderItemRow(row, item)
     row.itemID = nil
     row:SetScript("OnEnter", nil)
     row:SetScript("OnLeave", nil)
+    row:SetScript("OnMouseUp", nil)
   else
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     if item.showTick then
       row.tick:Show()
       row.tick:ClearAllPoints()
@@ -517,9 +633,14 @@ local function renderItemRow(row, item)
     row:SetScript("OnLeave", function()
       hideTrackerTooltip()
     end)
-    row:SetScript("OnClick", function(_, button)
-      if button == "LeftButton" and IsShiftKeyDown() and item.itemID then
-        ns.RemoveTrackedItem(item.itemID)
+    row:SetScript("OnClick", function(self, button)
+      if button == "LeftButton" and IsShiftKeyDown() and self.itemID then
+        ns.RemoveTrackedItem(self.itemID)
+      end
+    end)
+    row:SetScript("OnMouseUp", function(self, button)
+      if button == "RightButton" then
+        showTrackerContextMenu(self)
       end
     end)
   end
