@@ -593,6 +593,9 @@ test('loot events queue a normalized alert record for tracked chat loot outside 
         IsTrackedItem = function(itemID)
           return itemID == 19019
         end,
+        WasRecentSelfLoot = function(itemID)
+          return false
+        end,
         BuildLootAlertRecord = function(itemID, playerName)
           return { itemID = itemID, playerName = playerName }
         end,
@@ -645,6 +648,9 @@ test('loot events still queue a normalized alert record during combat', async ()
         IsTrackedItem = function(itemID)
           return true
         end,
+        WasRecentSelfLoot = function(itemID)
+          return false
+        end,
         BuildLootAlertRecord = function(itemID, playerName)
           return { itemID = itemID, playerName = playerName }
         end,
@@ -663,6 +669,107 @@ test('loot events still queue a normalized alert record during combat', async ()
 
     assert.equal(result.itemID, 19019)
     assert.equal(result.playerName, 'Teammate')
+  } finally {
+    lua.global.close()
+  }
+})
+
+test('loot events suppress popup when item was recently self-looted', async () => {
+  const factory = new LuaFactory()
+  const lua = await factory.createEngine()
+  const source = fs.readFileSync(path.join(process.cwd(), 'LootEvents.lua'), 'utf8')
+    .replace(/local _, namespace = \.\.\.[\s\S]*$/, '')
+
+  try {
+    const result = await lua.doString(`
+      LOOT_ITEM = "%s receives loot: %s."
+      ${source}
+
+      local queueCount = 0
+      local namespace = {
+        ItemResolver = {
+          getItemIdFromLink = function(link)
+            return 19019
+          end,
+        },
+        IsTrackedItem = function(itemID)
+          return true
+        end,
+        WasRecentSelfLoot = function(itemID)
+          return itemID == 19019
+        end,
+        BuildLootAlertRecord = function(itemID, playerName)
+          return { itemID = itemID, playerName = playerName }
+        end,
+        QueueLootAlert = function(record)
+          queueCount = queueCount + 1
+        end,
+      }
+
+      LootEvents.HandleChatLoot(namespace, "Teammate receives loot: |Hitem:19019::::::::70:::::|h[Thunderfury]|h.", "Teammate")
+
+      return queueCount
+    `)
+
+    assert.equal(result, 0)
+  } finally {
+    lua.global.close()
+  }
+})
+
+test('recent self-loot helper expires old markers', async () => {
+  const factory = new LuaFactory()
+  const lua = await factory.createEngine()
+  const source = fs.readFileSync(path.join(process.cwd(), 'LootWishList.lua'), 'utf8')
+    .replace(/--@do-not-package@[\s\S]*--@end-do-not-package@\s*$/, '')
+
+  try {
+    const result = await lua.doString(`
+      local now = 0
+      function GetTime()
+        return now
+      end
+      local function advance(dt)
+        now = now + dt
+      end
+
+      local function newFrame()
+        local frame = {}
+        function frame:RegisterEvent() end
+        function frame:SetScript() end
+        function frame:Hide() end
+        function frame:Show() end
+        return frame
+      end
+
+      function CreateFrame()
+        return newFrame()
+      end
+
+      local namespace = {
+        db = {},
+        state = {},
+        ItemResolver = {
+          getWishlistKey = function(item)
+            return "item:" .. tostring(item.itemID)
+          end,
+        },
+      }
+
+      (function(...)
+        ${source}
+      end)("Addon", namespace)
+
+      namespace.MarkRecentSelfLoot(19019)
+      local before = namespace.WasRecentSelfLoot(19019)
+      advance(4)
+      local after = namespace.WasRecentSelfLoot(19019)
+
+      return { before = before, after = after }
+    `)
+
+    assert.equal(result.before, true)
+    assert.equal(result.after, false)
   } finally {
     lua.global.close()
   }

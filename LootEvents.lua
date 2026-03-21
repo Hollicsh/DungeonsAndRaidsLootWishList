@@ -135,22 +135,8 @@ local function extractItemLinkFromLootMessage(message)
   return nil
 end
 
-local function ambiguatePlayerName(playerName)
-  if type(playerName) ~= "string" or playerName == "" then
-    return nil
-  end
-
-  if type(Ambiguate) == "function" then
-    return Ambiguate(playerName, "short")
-  end
-
-  return playerName
-end
-
 function LootEvents.HandleChatLoot(namespace, message, playerNameEvent)
-  local player = ambiguatePlayerName(playerNameEvent)
-  local selfName = UnitName("player")
-  if not player or (selfName and player == selfName) then
+  if type(playerNameEvent) ~= "string" then
     return
   end
 
@@ -165,7 +151,11 @@ function LootEvents.HandleChatLoot(namespace, message, playerNameEvent)
     return
   end
 
-  local alertRecord = namespace.BuildLootAlertRecord(itemID, player)
+  if type(namespace.WasRecentSelfLoot) == "function" and namespace.WasRecentSelfLoot(itemID) then
+    return
+  end
+
+  local alertRecord = namespace.BuildLootAlertRecord(itemID, playerNameEvent)
   if alertRecord then
     namespace.QueueLootAlert(alertRecord)
   end

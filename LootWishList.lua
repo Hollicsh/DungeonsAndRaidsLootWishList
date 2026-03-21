@@ -5,19 +5,13 @@ namespace.state = namespace.state or {
   possessed = {},
   bankKnown = false,
   pendingLootAlerts = {},
+  recentSelfLootByKey = {},
 }
 
 local eventFrame = CreateFrame("Frame")
 namespace.eventFrame = eventFrame
 
-StaticPopupDialogs["LOOT_WISHLIST_ALERT"] = {
-  text = "%s",
-  button1 = OKAY or "OK",
-  hasItemFrame = 1,
-  timeout = 0,
-  whileDead = 1,
-  hideOnEscape = 1,
-}
+local RECENT_SELF_LOOT_TTL_SECONDS = 3
 
 local function getCharacterKey()
   local name = UnitName("player") or "Unknown"
@@ -74,6 +68,53 @@ local debouncedRefresh = createDebouncedRefresh(0.25)
 local function getCurrentDb()
   LootWishListDB = LootWishListDB or { characters = {} }
   return LootWishListDB
+end
+
+local function getNow()
+  if type(GetTime) == "function" then
+    return GetTime()
+  end
+
+  return 0
+end
+
+local function pruneRecentSelfLoot(now)
+  local recentSelfLootByKey = namespace.state.recentSelfLootByKey or {}
+  namespace.state.recentSelfLootByKey = recentSelfLootByKey
+
+  for key, timestamp in pairs(recentSelfLootByKey) do
+    if type(timestamp) ~= "number" or (now - timestamp) > RECENT_SELF_LOOT_TTL_SECONDS then
+      recentSelfLootByKey[key] = nil
+    end
+  end
+end
+
+function namespace.MarkRecentSelfLoot(itemID)
+  if type(itemID) ~= "number" then
+    return
+  end
+
+  local now = getNow()
+  pruneRecentSelfLoot(now)
+  local key = namespace.ItemResolver.getWishlistKey({ itemID = itemID })
+  if key then
+    namespace.state.recentSelfLootByKey[key] = now
+  end
+end
+
+function namespace.WasRecentSelfLoot(itemID)
+  if type(itemID) ~= "number" then
+    return false
+  end
+
+  local now = getNow()
+  pruneRecentSelfLoot(now)
+  local key = namespace.ItemResolver.getWishlistKey({ itemID = itemID })
+  if not key then
+    return false
+  end
+
+  return namespace.state.recentSelfLootByKey[key] ~= nil
 end
 
 local function getTrackedItemEntry(itemID)
@@ -236,6 +277,8 @@ function namespace.SetTrackedFromItemData(itemData, tracked)
 end
 
 function namespace.RefreshPossessionState()
+  local previousPossessed = namespace.state.possessed or {}
+  local hasInitializedPossession = namespace.state.hasInitializedPossession == true
   local possessed = {}
   local highestLevels = {}
   local bestOwnedLinks = {}
@@ -278,11 +321,17 @@ function namespace.RefreshPossessionState()
   local trackedItems = namespace.WishlistStore.getTrackedItems(getCurrentDb(), getCharacterKey())
   for _, item in ipairs(trackedItems) do
     local key = namespace.ItemResolver.getWishlistKey({ itemID = item.itemID })
+    if hasInitializedPossession and possessed[key] and not previousPossessed[key] then
+      namespace.MarkRecentSelfLoot(item.itemID)
+    end
+
     if highestLevels[key] then
       namespace.WishlistStore.updateBestLootedItemLevel(getCurrentDb(), getCharacterKey(), item.itemID,
         highestLevels[key])
     end
   end
+
+  namespace.state.hasInitializedPossession = true
 end
 
 local raidInstances = {}
@@ -466,28 +515,8 @@ function namespace.BuildTrackerGroups()
   })
 end
 
-local function buildAlertItemLink(record)
-  if record.itemLink and type(record.itemLink) == "string" and record.itemLink:find("item:") then
-    return record.itemLink
-  end
-
-  if record.itemID and type(GetItemInfo) == "function" then
-    local itemLink = select(2, GetItemInfo(record.itemID))
-    if itemLink then
-      return itemLink
-    end
-  end
-
-  if record.itemID then
-    local itemName = record.itemName or ("Item " .. tostring(record.itemID))
-    return string.format("|Hitem:%d::::::::::::|h[%s]|h", record.itemID, itemName)
-  end
-
-  return nil
-end
-
 function namespace.BuildLootAlertRecord(itemID, playerName)
-  if type(itemID) ~= "number" or type(playerName) ~= "string" or playerName == "" then
+  if type(itemID) ~= "number" or type(playerName) ~= "string" then
     return nil
   end
 
@@ -506,34 +535,8 @@ function namespace.BuildLootAlertRecord(itemID, playerName)
 end
 
 function namespace.ShowLootDialogFromRecord(record)
-  if type(StaticPopup_Show) ~= "function" or type(record) ~= "table" then
-    return
-  end
-
-  local playerName = record.playerName
-  local itemLink = buildAlertItemLink(record)
-  if type(playerName) ~= "string" or playerName == "" or not itemLink then
-    return
-  end
-
-  local message = string.format(
-    "|n\194\160\194\160" ..
-    (namespace.GetText("PLAYER_LOOTED_WISHLIST_ITEM") or "|cFFFFFFFF%s|r looted an item on your Loot Wishlist!") ..
-    "\194\160\194\160|n|n",
-    "|cffffcc00" .. playerName .. "|cFFFFFFFF"
-  )
-
-  local data = {
-    link = itemLink,
-    useLinkForItemInfo = true,
-  }
-
-  if type(C_Timer) == "table" and type(C_Timer.After) == "function" then
-    C_Timer.After(0, function()
-      StaticPopup_Show("LOOT_WISHLIST_ALERT", message, nil, data)
-    end)
-  else
-    StaticPopup_Show("LOOT_WISHLIST_ALERT", message, nil, data)
+  if namespace.WishListAlert and namespace.WishListAlert.ShowFromRecord then
+    namespace.WishListAlert.ShowFromRecord(namespace, record)
   end
 end
 
@@ -547,13 +550,21 @@ function namespace.ShowLootDialog(playerName, itemLink)
 end
 
 function namespace.FlushLootAlerts()
+  if namespace.WishListAlert and namespace.WishListAlert.IsShown and namespace.WishListAlert.IsShown() then
+    namespace.state.lootAlertFlushQueued = false
+    return
+  end
+
   local pendingLootAlerts = namespace.state.pendingLootAlerts or {}
-  namespace.state.pendingLootAlerts = {}
   namespace.state.lootAlertFlushQueued = false
 
-  for _, alertRecord in ipairs(pendingLootAlerts) do
-    namespace.ShowLootDialogFromRecord(alertRecord)
+  if #pendingLootAlerts == 0 then
+    return
   end
+
+  local alertRecord = table.remove(pendingLootAlerts, 1)
+  namespace.state.pendingLootAlerts = pendingLootAlerts
+  namespace.ShowLootDialogFromRecord(alertRecord)
 end
 
 function namespace.QueueLootAlert(alertRecord)
