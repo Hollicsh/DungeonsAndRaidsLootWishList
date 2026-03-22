@@ -118,8 +118,28 @@ local function getLootPatterns()
   return EVENT_PATTERNS
 end
 
+local function isReadableLootValue(value)
+  if value == nil then
+    return false
+  end
+
+  if type(canaccessvalue) == "function" and canaccessvalue(value) ~= true then
+    return false
+  end
+
+  if type(issecretvalue) == "function" and issecretvalue(value) == true then
+    return false
+  end
+
+  return type(value) == "string"
+end
+
 local function extractItemLinkFromLootMessage(message)
-  if type(message) ~= "string" or message == "" then
+  if not isReadableLootValue(message) then
+    return nil
+  end
+
+  if message == "" then
     return nil
   end
 
@@ -137,7 +157,7 @@ local function extractItemLinkFromLootMessage(message)
 end
 
 function LootEvents.HandleChatLoot(namespace, message, playerNameEvent)
-  if type(playerNameEvent) ~= "string" then
+  if not isReadableLootValue(playerNameEvent) then
     return
   end
 

@@ -568,6 +568,12 @@ test('loot events queue a normalized alert record for tracked chat loot outside 
   try {
     const result = await lua.doString(`
       LOOT_ITEM = "%s receives loot: %s."
+      function issecretvalue(value)
+        return false
+      end
+      function canaccessvalue(value)
+        return true
+      end
       function InCombatLockdown()
         return false
       end
@@ -614,6 +620,56 @@ test('loot events queue a normalized alert record for tracked chat loot outside 
 
     assert.equal(result.itemID, 19019)
     assert.equal(result.playerName, 'Teammate')
+  } finally {
+    lua.global.close()
+  }
+})
+
+test('loot events skip inaccessible chat payloads before parsing or queueing', async () => {
+  const factory = new LuaFactory()
+  const lua = await factory.createEngine()
+  const source = fs.readFileSync(path.join(process.cwd(), 'LootEvents.lua'), 'utf8')
+    .replace(/local _, namespace = \.\.\.[\s\S]*$/, '')
+
+  try {
+    const result = await lua.doString(`
+      LOOT_ITEM = "%s receives loot: %s."
+      function issecretvalue(value)
+        return false
+      end
+      function canaccessvalue(value)
+        return value ~= "blocked-payload"
+      end
+
+      ${source}
+
+      local queueCount = 0
+      local namespace = {
+        ItemResolver = {
+          getItemIdFromLink = function(link)
+            error("should not try to resolve item link from blocked payload")
+          end,
+        },
+        IsTrackedItem = function(itemID)
+          return true
+        end,
+        WasRecentSelfLoot = function(itemID)
+          return false
+        end,
+        BuildLootAlertRecord = function(itemID, playerName)
+          return { itemID = itemID, playerName = playerName }
+        end,
+        QueueLootAlert = function(record)
+          queueCount = queueCount + 1
+        end,
+      }
+
+      LootEvents.HandleChatLoot(namespace, "blocked-payload", "Teammate")
+
+      return queueCount
+    `)
+
+    assert.equal(result, 0)
   } finally {
     lua.global.close()
   }
