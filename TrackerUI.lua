@@ -377,7 +377,11 @@ local function showTrackerTooltip(row)
     return
   end
 
-  trackerTooltip:Hide()
+  if ns and ns.TooltipCompare and ns.TooltipCompare.hide then
+    ns.TooltipCompare.hide(trackerTooltip)
+  else
+    trackerTooltip:Hide()
+  end
   trackerTooltip:SetOwner(UIParent, "ANCHOR_NONE")
   trackerTooltip:ClearAllPoints()
   trackerTooltip:SetPoint("TOPRIGHT", row, "TOPLEFT", -4, 0)
@@ -394,10 +398,18 @@ local function showTrackerTooltip(row)
   end
 
   trackerTooltip:Show()
+
+  if ns and ns.TooltipCompare and ns.TooltipCompare.showComparison then
+    ns.TooltipCompare.showComparison(trackerTooltip, row)
+  end
 end
 
 local function hideTrackerTooltip()
-  trackerTooltip:Hide()
+  if ns and ns.TooltipCompare and ns.TooltipCompare.hide then
+    ns.TooltipCompare.hide(trackerTooltip)
+  else
+    trackerTooltip:Hide()
+  end
 end
 
 local function ensureTrackerContextMenu()

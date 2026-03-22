@@ -1,10 +1,4 @@
-# Loot Alert Dialog
-
-## Purpose
-
-Define the addon-owned popup surface, interaction model, and message formatting for tracked-item loot alerts.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Loot Alert Dialog Configuration
 
@@ -34,17 +28,3 @@ The system SHALL present an addon-owned tracked-loot alert popup for tracked ite
 
 - **WHEN** the tracked-item alert dialog is showing equipped comparison for an alerted item
 - **THEN** moving the pointer away from the item presentation or dismissing the dialog hides both the primary alert tooltip and any comparison panes
-
-### Requirement: Loot Alert Dialog Formatting
-
-The system SHALL format the alert message text to be white (`|cFFFFFFFF`), and the looting player's name SHALL be highlighted in a distinct orange color (`|cFFFF8000`) to stand out. This formatting requirement SHALL remain the same whether the dialog is shown immediately or reconstructed later from normalized addon-owned alert data.
-
-#### Scenario: Highlighting the Player Name
-
-- **WHEN** the active character receives a loot alert for another player
-- **THEN** that player's name is rendered in the distinct alert color within the dialog text
-
-#### Scenario: Deferred alert preserves message formatting
-
-- **WHEN** the addon shows a previously deferred loot alert
-- **THEN** the dialog still renders white body text and the player's name in the distinct alert color

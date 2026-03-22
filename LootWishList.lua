@@ -683,7 +683,47 @@ eventFrame:RegisterEvent("PLAYER_LOGIN")
 -- === TEMPORARY TEST COMMAND ===
 -- Type /testroll in-game to see the "WISHLIST" tag rendered over a template GroupLootFrame
 SLASH_LWTESTROLL1 = "/testroll"
-SlashCmdList["LWTESTROLL"] = function()
+SlashCmdList["LWTESTROLL"] = function(msg)
+  local rarityAliases = {
+    poor = 0,
+    common = 1,
+    white = 1,
+    uncommon = 2,
+    green = 2,
+    rare = 3,
+    blue = 3,
+    epic = 4,
+    purple = 4,
+    legendary = 5,
+    orange = 5,
+    artifact = 6,
+    heirloom = 7,
+  }
+  local rarityBorderAtlases = {
+    [0] = "loottoast-itemborder-grey",
+    [1] = "loottoast-itemborder-white",
+    [2] = "loottoast-itemborder-green",
+    [3] = "loottoast-itemborder-blue",
+    [4] = "loottoast-itemborder-purple",
+    [5] = "loottoast-itemborder-orange",
+    [6] = "loottoast-itemborder-artifact",
+    [7] = "loottoast-itemborder-account",
+  }
+
+  local rarityInput = type(msg) == "string" and msg:match("^%s*(.-)%s*$") or ""
+  local forcedQuality = nil
+  if rarityInput ~= "" then
+    forcedQuality = tonumber(rarityInput)
+    if forcedQuality == nil then
+      forcedQuality = rarityAliases[string.lower(rarityInput)]
+    end
+
+    if forcedQuality == nil or forcedQuality < 0 or forcedQuality > 7 then
+      print("LootWishList: Invalid rarity. Use 0-7 or poor/common/uncommon/rare/epic/legendary/artifact/heirloom.")
+      return
+    end
+  end
+
   -- Fetch a random tracked item
   local db = LootWishListDB or { characters = {} }
   local name = UnitName("player") or "Unknown"
@@ -728,9 +768,25 @@ SlashCmdList["LWTESTROLL"] = function()
   if frame.Name then
     frame.Name:SetText(testItem.itemName or "Test Item")
 
-    local quality = select(3, GetItemInfo(itemLink)) or 4
+    local quality = forcedQuality or select(3, GetItemInfo(itemLink)) or 4
     local r, g, b = GetItemQualityColor(quality)
     frame.Name:SetVertexColor(r, g, b)
+
+    if frame.Border then
+      frame.Border:SetVertexColor(r, g, b)
+    end
+
+    if frame.Background then
+      frame.Background:SetVertexColor(r * 0.7, g * 0.7, b * 0.7)
+    end
+
+    if frame.IconFrame and frame.IconFrame.Border then
+      local atlas = rarityBorderAtlases[quality] or rarityBorderAtlases[2]
+      if frame.IconFrame.Border.SetAtlas and atlas then
+        frame.IconFrame.Border:SetAtlas(atlas)
+      end
+      frame.IconFrame.Border:SetVertexColor(1, 1, 1)
+    end
   end
   if frame.Timer then
     frame.Timer:SetValue(50) -- Half full timer
@@ -771,7 +827,8 @@ SlashCmdList["LWTESTROLL"] = function()
   NUM_GROUP_LOOT_FRAMES = original_NUM_GROUP_LOOT_FRAMES
   _G["GroupLootFrame5"] = nil -- Clean up the global taint
 
-  print("LootWishList: Created and showed a template GroupLootFrame for " .. (testItem.itemName or "Test Item") .. "!")
+  local displayedQuality = forcedQuality or select(3, GetItemInfo(itemLink)) or 4
+  print("LootWishList: Created and showed a template GroupLootFrame for " .. (testItem.itemName or "Test Item") .. " at rarity " .. tostring(displayedQuality) .. "!")
 end
 
 SLASH_LWTESTALERT1 = "/testalert"

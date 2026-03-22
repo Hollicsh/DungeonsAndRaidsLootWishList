@@ -2,10 +2,11 @@ local WishListAlert = {}
 
 local lootAlertFrame = nil
 local lootAlertTooltip = CreateFrame("GameTooltip", "LootWishListAlertTooltip", UIParent, "GameTooltipTemplate")
+local alertNamespace = nil
 
 local LOOT_ALERT_WIDTH = 360
-local LOOT_ALERT_ITEM_ICON_SIZE = 36
-local LOOT_ALERT_ITEM_NAME_WIDTH = 140
+local LOOT_ALERT_ITEM_ICON_SIZE = 40
+local LOOT_ALERT_ITEM_NAME_WIDTH = 150
 local LOOT_ALERT_ITEM_GAP = 16
 
 local function playAlertSound(soundKit)
@@ -71,6 +72,18 @@ local function getAlertItemDisplayName(record, itemLink)
 end
 
 local function getAlertItemColor(itemLink)
+  if type(itemLink) == "string" then
+    local hexColor = itemLink:match("|c[fF][fF](%x%x%x%x%x%x)")
+    if hexColor and #hexColor == 6 then
+      local r = tonumber(hexColor:sub(1, 2), 16)
+      local g = tonumber(hexColor:sub(3, 4), 16)
+      local b = tonumber(hexColor:sub(5, 6), 16)
+      if r and g and b then
+        return r / 255, g / 255, b / 255
+      end
+    end
+  end
+
   local quality = nil
   if type(GetItemInfo) == "function" and type(itemLink) == "string" then
     quality = select(3, GetItemInfo(itemLink))
@@ -87,7 +100,9 @@ local function getAlertItemColor(itemLink)
 end
 
 function WishListAlert.Close()
-  if lootAlertTooltip then
+  if lootAlertTooltip and alertNamespace and alertNamespace.TooltipCompare and alertNamespace.TooltipCompare.hide then
+    alertNamespace.TooltipCompare.hide(lootAlertTooltip)
+  elseif lootAlertTooltip then
     lootAlertTooltip:Hide()
   end
 
@@ -137,7 +152,7 @@ local function ensureLootAlertFrame(namespace)
       insets = { left = 11, right = 12, top = 12, bottom = 11 },
     })
   end
-  lootAlertFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 380)
+  lootAlertFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 220)
 
   lootAlertFrame.text = lootAlertFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
   lootAlertFrame.text:SetPoint("TOPLEFT", lootAlertFrame, "TOPLEFT", 24, -26)
@@ -185,12 +200,25 @@ local function ensureLootAlertFrame(namespace)
       return
     end
 
+    if alertNamespace and alertNamespace.TooltipCompare and alertNamespace.TooltipCompare.hide then
+      alertNamespace.TooltipCompare.hide(lootAlertTooltip)
+    else
+      lootAlertTooltip:Hide()
+    end
     lootAlertTooltip:SetOwner(self, "ANCHOR_RIGHT")
     lootAlertTooltip:SetHyperlink(itemLink)
     lootAlertTooltip:Show()
+
+    if alertNamespace and alertNamespace.TooltipCompare and alertNamespace.TooltipCompare.showComparison then
+      alertNamespace.TooltipCompare.showComparison(lootAlertTooltip, self)
+    end
   end)
   lootAlertFrame.itemButton:SetScript("OnLeave", function()
-    lootAlertTooltip:Hide()
+    if alertNamespace and alertNamespace.TooltipCompare and alertNamespace.TooltipCompare.hide then
+      alertNamespace.TooltipCompare.hide(lootAlertTooltip)
+    else
+      lootAlertTooltip:Hide()
+    end
   end)
 
   lootAlertFrame.button1 = CreateFrame("Button", nil, lootAlertFrame, "UIPanelButtonTemplate")
@@ -202,7 +230,11 @@ local function ensureLootAlertFrame(namespace)
   end)
 
   lootAlertFrame:SetScript("OnHide", function(self)
-    lootAlertTooltip:Hide()
+    if alertNamespace and alertNamespace.TooltipCompare and alertNamespace.TooltipCompare.hide then
+      alertNamespace.TooltipCompare.hide(lootAlertTooltip)
+    else
+      lootAlertTooltip:Hide()
+    end
     self.record = nil
 
     if namespace.state.pendingLootAlerts and #namespace.state.pendingLootAlerts > 0 and not namespace.state.lootAlertFlushQueued then
@@ -249,6 +281,7 @@ end
 
 local _, namespace = ...
 if type(namespace) == "table" then
+  alertNamespace = namespace
   namespace.WishListAlert = WishListAlert
 end
 

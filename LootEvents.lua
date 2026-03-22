@@ -4,8 +4,8 @@ local LOOT_ROLL_BADGE_ICON_ATLAS = "Banker"
 local LOOT_ROLL_BADGE_ICON_SIZE = 18
 local LOOT_ROLL_BADGE_GAP = 2
 local LOOT_ROLL_BADGE_SIDE_PADDING = 40
-local LOOT_ROLL_BADGE_GLOW_PAD_X = 6
-local LOOT_ROLL_BADGE_GLOW_PAD_Y = 4
+local LOOT_ROLL_BADGE_GLOW_PAD_X = 120
+local LOOT_ROLL_BADGE_GLOW_PAD_Y = 16
 
 local function hideRollBadge(frame)
   if frame and frame.LootWishListBadge then
@@ -26,10 +26,10 @@ local function ensureRollBadge(frame)
   badge:SetHeight(LOOT_ROLL_BADGE_ICON_SIZE)
 
   badge.glow = badge:CreateTexture(nil, "BACKGROUND")
-  badge.glow:SetAtlas("ChallengeMode-WhiteSpikeyGlow", false)
+  badge.glow:SetAtlas("pvpscoreboard-header-glow", false)
   badge.glow:SetBlendMode("ADD")
-  badge.glow:SetVertexColor(0.95, 0.95, 0.95, 0.5)
-  badge.glow:SetPoint("TOPLEFT", badge, "TOPLEFT", -LOOT_ROLL_BADGE_GLOW_PAD_X, LOOT_ROLL_BADGE_GLOW_PAD_Y)
+  badge.glow:SetVertexColor(1, 1, 1, 1)
+  badge.glow:SetPoint("TOPLEFT", badge, "TOPLEFT", -LOOT_ROLL_BADGE_GLOW_PAD_X, LOOT_ROLL_BADGE_GLOW_PAD_Y + 14)
   badge.glow:SetPoint("BOTTOMRIGHT", badge, "BOTTOMRIGHT", LOOT_ROLL_BADGE_GLOW_PAD_X, -LOOT_ROLL_BADGE_GLOW_PAD_Y)
 
   badge.icon = badge:CreateTexture(nil, "OVERLAY")
@@ -88,9 +88,10 @@ function LootEvents.HandleStartLootRoll(namespace, rollID)
   end
 
   badge.text:SetText(namespace.GetText("WISHLIST"))
-  badge:SetWidth((LOOT_ROLL_BADGE_SIDE_PADDING * 2) + LOOT_ROLL_BADGE_ICON_SIZE + LOOT_ROLL_BADGE_GAP + badge.text:GetStringWidth())
+  badge:SetWidth((LOOT_ROLL_BADGE_SIDE_PADDING * 2) + LOOT_ROLL_BADGE_ICON_SIZE + LOOT_ROLL_BADGE_GAP +
+    badge.text:GetStringWidth())
   badge:ClearAllPoints()
-  badge:SetPoint("TOP", frame, "TOP", 0, 11)
+  badge:SetPoint("TOP", frame, "TOP", 0, 12)
   badge:Show()
 end
 
